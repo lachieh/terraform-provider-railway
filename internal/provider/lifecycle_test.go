@@ -263,3 +263,64 @@ resource "railway_bucket" "backups" {
 		}},
 	})
 }
+
+const extendedResources = `
+data "railway_project" "this" {
+  id = data.railway_environment.this.project_id
+}
+
+data "railway_environment" "this" {
+  id = local.environment_id
+}
+
+resource "railway_group" "data" {
+  environment_id = local.environment_id
+  name           = "data"
+  color          = "#0f766e"
+}
+
+resource "railway_bucket" "backups" {
+  environment_id = local.environment_id
+  name           = "backups"
+  region         = "sjc"
+  group          = railway_group.data.name
+}
+
+resource "railway_function" "hook" {
+  environment_id = local.environment_id
+  name           = "hook"
+  code           = "export default { fetch() { return new Response(\"ok\") } }"
+  variables = {
+    SESSION = "public-${provider::railway::random_string(data.railway_environment.this.name, "session", 16)}"
+  }
+}
+`
+
+func TestFunctionsGroupsAndDataSources(t *testing.T) {
+	requireCLI(t)
+	fake, server := newFakeBackboard(t)
+	config := environmentConfig(server.URL, extendedResources)
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.railway_environment.this", "name", "staging"),
+					resource.TestCheckResourceAttr("data.railway_environment.this", "project_id", fakeProjectID),
+					resource.TestCheckResourceAttr("data.railway_project.this", "environments.production", "env-production"),
+					resource.TestCheckResourceAttr("railway_function.hook", "id", fakeEnvironmentID+"/service.hook"),
+					// sha256("railway-iac:staging:session"), first 16 bytes.
+					resource.TestCheckResourceAttr("railway_function.hook", "variables.SESSION", "public-34dfe460291ad72046d0b67e2556e9b5"),
+					func(*terraform.State) error {
+						if !slices.Contains(fake.addresses(), "group.data") {
+							return fmt.Errorf("group not created: %v", fake.addresses())
+						}
+						return nil
+					},
+				),
+			},
+			{Config: config, PlanOnly: true},
+		},
+	})
+}

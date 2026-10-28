@@ -108,10 +108,21 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 		var edges []any
 		for _, resource := range f.graph.Resources {
 			if iac.ResourceType(resource) == want {
-				edges = append(edges, map[string]any{"node": map[string]any{"id": iac.ResourceName(resource), "name": iac.ResourceName(resource), "groupId": nil}})
+				node := map[string]any{"id": iac.ResourceName(resource), "name": iac.ResourceName(resource), "groupId": nil}
+				if group, ok := resource["groupId"].(string); ok {
+					node["groupId"] = group
+				}
+				edges = append(edges, map[string]any{"node": node})
 			}
 		}
 		return connection(edges), nil
+	case "IacProject":
+		return map[string]any{"project": map[string]any{"id": fakeProjectID, "name": "test", "workspaceId": "workspace-test"}}, nil
+	case "IacProjectEnvironments":
+		return connection([]any{
+			map[string]any{"node": map[string]any{"id": fakeEnvironmentID, "name": "staging", "isEphemeral": false}},
+			map[string]any{"node": map[string]any{"id": "env-production", "name": "production", "isEphemeral": false}},
+		}), nil
 	case "GitHubRepos":
 		return map[string]any{"githubRepos": []any{}}, nil
 	case "IacPreviewChangeSet":
@@ -249,12 +260,14 @@ func (f *fakeBackboard) changeSets() []iac.ChangeSet {
 	return append([]iac.ChangeSet(nil), f.applied...)
 }
 
-// liveConfig drops the patch markers GraphToEnvironmentConfig writes for
-// new resources; a committed environment config does not carry them.
+// liveConfig drops what GraphToEnvironmentConfig writes for a patch but a
+// committed environment config does not carry.
 func (f *fakeBackboard) liveConfig(config map[string]any) map[string]any {
+	// GraphToEnvironmentConfig prunes the empty alert thresholds a live
+	// volume config keeps.
 	for _, resource := range f.graph.Resources {
-		if kind := iac.ResourceType(resource); kind == "volume" || kind == "bucket" {
-			config[kind+"s"].(map[string]any)[iac.ResourceName(resource)] = iac.Clone(resource["config"])
+		if iac.ResourceType(resource) == "volume" {
+			config["volumes"].(map[string]any)[iac.ResourceName(resource)] = iac.Clone(resource["config"])
 		}
 	}
 	for _, section := range []string{"services", "volumes", "buckets"} {
@@ -262,6 +275,11 @@ func (f *fakeBackboard) liveConfig(config map[string]any) map[string]any {
 		for _, entry := range entries {
 			if object, ok := entry.(map[string]any); ok {
 				delete(object, "isCreated")
+				if section == "buckets" {
+					// Railway reports a bucket's group through the buckets
+					// query, not its config.
+					delete(object, "groupId")
+				}
 			}
 		}
 	}

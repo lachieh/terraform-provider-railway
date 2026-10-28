@@ -32,8 +32,11 @@ type commonModel struct {
 // nodeKind describes one graph resource type: its schema, and how its model
 // becomes an SDK value.
 type nodeKind[M any] struct {
-	// graphType is the graph address prefix: service, database, volume or bucket.
-	graphType   string
+	// graphType is the graph address prefix: service, database, volume,
+	// bucket or group.
+	graphType string
+	// typeName is the resource type suffix, when it differs from graphType.
+	typeName    string
 	description string
 	attributes  map[string]schema.Attribute
 	common      func(*M) *commonModel
@@ -54,7 +57,11 @@ var (
 )
 
 func (r *nodeResource[M]) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_" + r.kind.graphType
+	name := r.kind.typeName
+	if name == "" {
+		name = r.kind.graphType
+	}
+	resp.TypeName = req.ProviderTypeName + "_" + name
 }
 
 func (r *nodeResource[M]) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -317,6 +324,14 @@ func (r *nodeResource[M]) setComputed(common *commonModel, snap *snapshot, addre
 func railwayID(snap *snapshot, graphType, name string) string {
 	byID := snap.names.ServiceNamesByID
 	switch graphType {
+	case "group":
+		groups, _ := snap.env.Config["groups"].(map[string]any)
+		for _, id := range iac.SortedKeys(groups) {
+			if iac.FieldStr(groups[id], "name") == name {
+				return id
+			}
+		}
+		return ""
 	case "volume":
 		byID = snap.names.VolumeNamesByID
 	case "bucket":

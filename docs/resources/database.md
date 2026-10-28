@@ -35,7 +35,7 @@ resource "railway_database" "postgres" {
 
 ### Required
 
-- `engine` (String) `postgres`, `mysql`, `redis` or `mongo`, as `railway.Postgres`, `railway.Mysql`, `railway.Redis` and `railway.Mongo`.
+- `engine` (String) `postgres`, `mysql`, `redis` or `mongo` deploy Railway's template, as `railway.Postgres`, `railway.Mysql`, `railway.Redis` and `railway.Mongo`. Any other engine is a database you bring, as `railway.Database`, and needs `image`.
 - `environment_id` (String) ID of the Railway environment that holds this database. Changing it replaces the resource.
 - `name` (String) Name of the database. Railway IaC addresses resources by name, so renaming replaces it.
 
@@ -43,14 +43,21 @@ resource "railway_database" "postgres" {
 
 - `build` (Attributes) Build settings. (see [below for nested schema](#nestedatt--build))
 - `cdn` (Attributes) Edge caching for the service's public domains, as `railway.ServiceCdn`. Applies without a deploy. (see [below for nested schema](#nestedatt--cdn))
+- `cluster_display` (Attributes) How the canvas labels a cluster member. (see [below for nested schema](#nestedatt--cluster_display))
+- `cluster_role` (String) Role in a cluster: `root`, `replica`, `internal` or `edge`.
 - `config_file` (String) Path of a Railway config file in the repository.
 - `custom_domains` (Attributes Map) Custom domains keyed by host name. The SDK defaults `port` to `8080`. (see [below for nested schema](#nestedatt--custom_domains))
+- `default_mount_path` (String) Where the database's volume mounts. Defaults to the template's path for a template engine.
 - `deploy` (Attributes) Deploy settings. (see [below for nested schema](#nestedatt--deploy))
 - `group` (String) Name of the canvas group the service belongs to.
-- `image` (String) Image to run instead of the engine's default template image.
+- `image` (String) Image to run. Defaults to the template's image for a template engine.
 - `num_replicas` (Number) Replica count in the service's default region. Conflicts with `replicas`.
+- `output` (String) Variable other services reference for the connection string. Defaults to the engine's, such as `DATABASE_URL`.
+- `parent_service_id` (String) ID of the service this one is a cluster member of.
 - `preserve_variables` (List of String) Variables Railway keeps with their current values, as `railway.Preserve()`. Use for secrets set outside Terraform.
 - `region` (String) Region of the database's single replica.
+- `replica_config` (Attributes) Scaling bounds for a cluster. (see [below for nested schema](#nestedatt--replica_config))
+- `replica_stackers` (Map of String) Stacker assignment per region, for regions listed in `replicas`.
 - `replicas` (Map of Number) Replica count per region, such as `{ "us-west2" = 1 }`.
 - `service_domains` (Attributes Map) Railway-generated `*.up.railway.app` domains keyed by host name. (see [below for nested schema](#nestedatt--service_domains))
 - `shared_variables` (Map of String) Variables that reference an environment shared variable, keyed by variable and valued by shared variable name, as `railway.Shared`.
@@ -95,6 +102,15 @@ Optional:
 - `html_caching` (String) `auto`, `force` or `never`.
 - `purge_on_deploy` (String) `off`, `html` or `all`.
 - `stale_while_revalidate` (Boolean) Honour `stale-while-revalidate`. Railway's default is `true`.
+
+
+<a id="nestedatt--cluster_display"></a>
+### Nested Schema for `cluster_display`
+
+Optional:
+
+- `badge` (String) Badge text.
+- `badge_variant` (String) `primary`, `secondary` or `muted`.
 
 
 <a id="nestedatt--custom_domains"></a>
@@ -142,6 +158,17 @@ Required:
 - `password` (String, Sensitive) Registry password or token.
 - `username` (String) Registry user name.
 
+
+
+<a id="nestedatt--replica_config"></a>
+### Nested Schema for `replica_config`
+
+Optional:
+
+- `max_replicas` (Number) Most replicas.
+- `min_replicas` (Number) Fewest replicas.
+- `scalable` (Boolean) Whether the cluster scales.
+- `step` (Number) Replicas added or removed per scaling step.
 
 
 <a id="nestedatt--service_domains"></a>

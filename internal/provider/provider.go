@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -25,7 +26,7 @@ const (
 	endpointEnvVar     = "RAILWAY_GRAPHQL_ENDPOINT"
 )
 
-var _ provider.Provider = &railwayProvider{}
+var _ provider.ProviderWithFunctions = &railwayProvider{}
 
 type railwayProvider struct {
 	version string
@@ -133,9 +134,18 @@ func (p *railwayProvider) Resources(context.Context) []func() resource.Resource 
 		NewDatabaseResource,
 		NewVolumeResource,
 		NewBucketResource,
+		NewFunctionResource,
+		NewGroupResource,
 	}
 }
 
 func (p *railwayProvider) DataSources(context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewEnvironmentDataSource,
+		NewProjectDataSource,
+	}
+}
+
+func (p *railwayProvider) Functions(context.Context) []func() function.Function {
+	return []func() function.Function{NewRandomStringFunction}
 }

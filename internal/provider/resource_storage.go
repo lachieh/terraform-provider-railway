@@ -18,9 +18,11 @@ import (
 type databaseModel struct {
 	commonModel
 	serviceSettings
-	Engine string  `tfsdk:"engine"`
-	Image  *string `tfsdk:"image"`
-	Region *string `tfsdk:"region"`
+	Engine           string  `tfsdk:"engine"`
+	Image            *string `tfsdk:"image"`
+	Region           *string `tfsdk:"region"`
+	Output           *string `tfsdk:"output"`
+	DefaultMountPath *string `tfsdk:"default_mount_path"`
 }
 
 // databaseConstructors are the SDK's managed database templates.
@@ -34,12 +36,20 @@ var databaseConstructors = map[string]func(string, ...map[string]any) railway.Re
 func NewDatabaseResource() resource.Resource {
 	attributes := serviceSettingsAttributes()
 	attributes["engine"] = schema.StringAttribute{
-		MarkdownDescription: "`postgres`, `mysql`, `redis` or `mongo`, as `railway.Postgres`, `railway.Mysql`, `railway.Redis` and `railway.Mongo`.",
-		Required:            true,
-		Validators:          []validator.String{stringvalidator.OneOf("postgres", "mysql", "redis", "mongo")},
+		MarkdownDescription: "`postgres`, `mysql`, `redis` or `mongo` deploy Railway's template, as `railway.Postgres`, `railway.Mysql`, `railway.Redis` and `railway.Mongo`. " +
+			"Any other engine is a database you bring, as `railway.Database`, and needs `image`.",
+		Required: true,
 	}
 	attributes["image"] = schema.StringAttribute{
-		MarkdownDescription: "Image to run instead of the engine's default template image.",
+		MarkdownDescription: "Image to run. Defaults to the template's image for a template engine.",
+		Optional:            true,
+	}
+	attributes["output"] = schema.StringAttribute{
+		MarkdownDescription: "Variable other services reference for the connection string. Defaults to the engine's, such as `DATABASE_URL`.",
+		Optional:            true,
+	}
+	attributes["default_mount_path"] = schema.StringAttribute{
+		MarkdownDescription: "Where the database's volume mounts. Defaults to the template's path for a template engine.",
 		Optional:            true,
 	}
 	attributes["region"] = schema.StringAttribute{
@@ -57,7 +67,17 @@ func NewDatabaseResource() resource.Resource {
 				options := map[string]any{}
 				putString(options, "image", m.Image)
 				putString(options, "region", m.Region)
-				database := databaseConstructors[m.Engine](m.Name.ValueString(), options)
+				putString(options, "output", m.Output)
+				putString(options, "defaultMountPath", m.DefaultMountPath)
+				var database railway.Resource
+				if template, ok := databaseConstructors[m.Engine]; ok {
+					database = template(m.Name.ValueString(), options)
+				} else {
+					if m.Image == nil {
+						panic("A " + m.Engine + " database is not a Railway template; set image.")
+					}
+					database = railway.Database(m.Name.ValueString(), m.Engine, options)
+				}
 				return overlayService(database.Graph(), m.Name.ValueString(), m.config())
 			}
 		},
@@ -90,6 +110,7 @@ type volumeModel struct {
 	AllowOnlineResize       *bool   `tfsdk:"allow_online_resize"`
 	UsageAlerts             []int64 `tfsdk:"usage_alerts"`
 	ForkFromBaseEnvironment *bool   `tfsdk:"fork_from_base_environment"`
+	Group                   *string `tfsdk:"group"`
 }
 
 func NewVolumeResource() resource.Resource {
@@ -110,6 +131,7 @@ func NewVolumeResource() resource.Resource {
 				MarkdownDescription: "Create the volume in a forked environment from the base environment's data.",
 				Optional:            true,
 			},
+			"group": schema.StringAttribute{MarkdownDescription: "Name of the canvas group the volume belongs to.", Optional: true},
 		},
 		common: func(m *volumeModel) *commonModel { return &m.commonModel },
 		build: func(m *volumeModel) func() any {
@@ -126,7 +148,7 @@ func NewVolumeResource() resource.Resource {
 					}
 					config["alerts"] = map[string]any{"usage": usage}
 				}
-				return railway.Volume(m.Name.ValueString(), config)
+				return inGroup(m.Group, railway.Volume(m.Name.ValueString(), config))
 			}
 		},
 		// Railway's config apply never deletes a volume, so destroy deletes
@@ -155,6 +177,7 @@ func NewVolumeResource() resource.Resource {
 type bucketModel struct {
 	commonModel
 	Region *string `tfsdk:"region"`
+	Group  *string `tfsdk:"group"`
 }
 
 func NewBucketResource() resource.Resource {
@@ -167,13 +190,14 @@ func NewBucketResource() resource.Resource {
 				Optional:            true,
 				Validators:          []validator.String{stringvalidator.OneOf("sjc", "iad", "ams", "sin")},
 			},
+			"group": schema.StringAttribute{MarkdownDescription: "Name of the canvas group the bucket belongs to.", Optional: true},
 		},
 		common: func(m *bucketModel) *commonModel { return &m.commonModel },
 		build: func(m *bucketModel) func() any {
 			return func() any {
 				config := map[string]any{}
 				putString(config, "region", m.Region)
-				return railway.Bucket(m.Name.ValueString(), config)
+				return inGroup(m.Group, railway.Bucket(m.Name.ValueString(), config))
 			}
 		},
 	}}

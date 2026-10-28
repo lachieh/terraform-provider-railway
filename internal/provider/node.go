@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	railway "github.com/railwayapp/railway-go-sdk"
 
@@ -88,3 +89,5 @@ func putFloat(out map[string]any, key string, value *float64) {
 		out[key] = *value
 	}
 }
+
+func itoa(value int) string { return strconv.Itoa(value) }

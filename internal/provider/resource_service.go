@@ -37,12 +37,34 @@ type serviceSettings struct {
 	Tracing            *tracingModel             `tfsdk:"tracing"`
 	CDN                *cdnModel                 `tfsdk:"cdn"`
 	Group              *string                   `tfsdk:"group"`
+	ReplicaStackers    map[string]string         `tfsdk:"replica_stackers"`
+	ParentServiceID    *string                   `tfsdk:"parent_service_id"`
+	ClusterRole        *string                   `tfsdk:"cluster_role"`
+	ReplicaConfig      *replicaConfigModel       `tfsdk:"replica_config"`
+	ClusterDisplay     *clusterDisplayModel      `tfsdk:"cluster_display"`
+}
+
+type replicaConfigModel struct {
+	MinReplicas *int64 `tfsdk:"min_replicas"`
+	MaxReplicas *int64 `tfsdk:"max_replicas"`
+	Step        *int64 `tfsdk:"step"`
+	Scalable    *bool  `tfsdk:"scalable"`
+}
+
+type clusterDisplayModel struct {
+	Badge        *string `tfsdk:"badge"`
+	BadgeVariant *string `tfsdk:"badge_variant"`
 }
 
 type sourceModel struct {
 	GitHub   *githubSourceModel   `tfsdk:"github"`
 	Image    *imageSourceModel    `tfsdk:"image"`
 	Template *templateSourceModel `tfsdk:"template"`
+	Empty    *emptySourceModel    `tfsdk:"empty"`
+}
+
+type emptySourceModel struct {
+	RootDirectory *string `tfsdk:"root_directory"`
 }
 
 type githubSourceModel struct {
@@ -50,6 +72,7 @@ type githubSourceModel struct {
 	Branch        *string `tfsdk:"branch"`
 	CheckSuites   *bool   `tfsdk:"check_suites"`
 	RootDirectory *string `tfsdk:"root_directory"`
+	CommitSHA     *string `tfsdk:"commit_sha"`
 }
 
 type imageSourceModel struct {
@@ -136,7 +159,7 @@ type cdnModel struct {
 func NewServiceResource() resource.Resource {
 	attributes := serviceSettingsAttributes()
 	attributes["source"] = schema.SingleNestedAttribute{
-		MarkdownDescription: "Where the service's code comes from. Set exactly one of `github`, `image` or `template`; omit for an empty service.",
+		MarkdownDescription: "Where the service's code comes from. Set exactly one of `github`, `image`, `template` or `empty`; omit for an empty service.",
 		Optional:            true,
 		Attributes: map[string]schema.Attribute{
 			"github": schema.SingleNestedAttribute{
@@ -147,6 +170,7 @@ func NewServiceResource() resource.Resource {
 					"branch":         schema.StringAttribute{MarkdownDescription: "Branch to deploy. `railway.Github` defaults it to `main`, so a branch owned by the environment, as in pull request environments, cannot be expressed.", Optional: true},
 					"check_suites":   schema.BoolAttribute{MarkdownDescription: "Wait for GitHub check suites before deploying.", Optional: true},
 					"root_directory": schema.StringAttribute{MarkdownDescription: "Directory of the repository to build from.", Optional: true},
+					"commit_sha":     schema.StringAttribute{MarkdownDescription: "Commit to deploy instead of the branch head.", Optional: true},
 				},
 			},
 			"image": schema.SingleNestedAttribute{
@@ -179,6 +203,13 @@ func NewServiceResource() resource.Resource {
 							},
 						},
 					},
+				},
+			},
+			"empty": schema.SingleNestedAttribute{
+				MarkdownDescription: "No source, as `railway.Empty`: deploys come from `railway up` or the dashboard.",
+				Optional:            true,
+				Attributes: map[string]schema.Attribute{
+					"root_directory": schema.StringAttribute{MarkdownDescription: "Directory uploads build from.", Optional: true},
 				},
 			},
 			"template": schema.SingleNestedAttribute{
@@ -221,6 +252,7 @@ func (s *sourceModel) sdk() map[string]any {
 		putString(options, "branch", s.GitHub.Branch)
 		putBool(options, "checkSuites", s.GitHub.CheckSuites)
 		putString(options, "rootDirectory", s.GitHub.RootDirectory)
+		putString(options, "commitSha", s.GitHub.CommitSHA)
 		return railway.Github(s.GitHub.Repo, options)
 	case s.Image != nil:
 		options := map[string]any{}
@@ -239,6 +271,10 @@ func (s *sourceModel) sdk() map[string]any {
 		return railway.Image(s.Image.Image, options)
 	case s.Template != nil:
 		return railway.Template(s.Template.Template)
+	case s.Empty != nil:
+		options := map[string]any{}
+		putString(options, "rootDirectory", s.Empty.RootDirectory)
+		return railway.Empty(options)
 	}
 	return nil
 }
@@ -256,6 +292,10 @@ func (s *serviceSettings) config() railway.ServiceConfig {
 	case s.Replicas != nil:
 		regions := map[string]any{}
 		for region, count := range s.Replicas {
+			if stacker, ok := s.ReplicaStackers[region]; ok {
+				regions[region] = map[string]any{"count": int(count), "stacker": stacker}
+				continue
+			}
 			regions[region] = int(count)
 		}
 		config["replicas"] = regions
@@ -304,6 +344,26 @@ func (s *serviceSettings) config() railway.ServiceConfig {
 	}
 	if s.Group != nil {
 		config["groupId"] = *s.Group
+	}
+	if s.ParentServiceID != nil {
+		config["parentServiceId"] = *s.ParentServiceID
+	}
+	if s.ClusterRole != nil {
+		config["clusterRole"] = *s.ClusterRole
+	}
+	if c := s.ReplicaConfig; c != nil {
+		replicaConfig := map[string]any{}
+		putInt(replicaConfig, "minReplicas", c.MinReplicas)
+		putInt(replicaConfig, "maxReplicas", c.MaxReplicas)
+		putInt(replicaConfig, "step", c.Step)
+		putBool(replicaConfig, "scalable", c.Scalable)
+		config["replicaConfig"] = replicaConfig
+	}
+	if d := s.ClusterDisplay; d != nil {
+		display := map[string]any{}
+		putString(display, "badge", d.Badge)
+		putString(display, "badgeVariant", d.BadgeVariant)
+		config["clusterDisplay"] = display
 	}
 	if s.Tracing != nil {
 		tracing := map[string]any{}
@@ -512,6 +572,39 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 			Optional:            true,
 			ElementType:         types.StringType,
 		},
+		"replica_stackers": schema.MapAttribute{
+			MarkdownDescription: "Stacker assignment per region, for regions listed in `replicas`.",
+			Optional:            true,
+			ElementType:         types.StringType,
+		},
+		"parent_service_id": optionalString("ID of the service this one is a cluster member of."),
+		"cluster_role": schema.StringAttribute{
+			MarkdownDescription: "Role in a cluster: `root`, `replica`, `internal` or `edge`.",
+			Optional:            true,
+			Validators:          []validator.String{stringvalidator.OneOf("root", "replica", "internal", "edge")},
+		},
+		"replica_config": schema.SingleNestedAttribute{
+			MarkdownDescription: "Scaling bounds for a cluster.",
+			Optional:            true,
+			Attributes: map[string]schema.Attribute{
+				"min_replicas": optionalInt("Fewest replicas."),
+				"max_replicas": optionalInt("Most replicas."),
+				"step":         optionalInt("Replicas added or removed per scaling step."),
+				"scalable":     optionalBool("Whether the cluster scales."),
+			},
+		},
+		"cluster_display": schema.SingleNestedAttribute{
+			MarkdownDescription: "How the canvas labels a cluster member.",
+			Optional:            true,
+			Attributes: map[string]schema.Attribute{
+				"badge": optionalString("Badge text."),
+				"badge_variant": schema.StringAttribute{
+					MarkdownDescription: "`primary`, `secondary` or `muted`.",
+					Optional:            true,
+					Validators:          []validator.String{stringvalidator.OneOf("primary", "secondary", "muted")},
+				},
+			},
+		},
 		"config_file": optionalString("Path of a Railway config file in the repository."),
 		"group":       optionalString("Name of the canvas group the service belongs to."),
 		"tracing": schema.SingleNestedAttribute{
@@ -548,7 +641,7 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 type sourceExactlyOne struct{}
 
 func (sourceExactlyOne) Description(context.Context) string {
-	return "Set exactly one of github, image or template."
+	return "Set exactly one of github, image, template or empty."
 }
 
 func (v sourceExactlyOne) MarkdownDescription(ctx context.Context) string { return v.Description(ctx) }
@@ -558,7 +651,7 @@ func (sourceExactlyOne) ValidateObject(_ context.Context, req validator.ObjectRe
 		return
 	}
 	set := 0
-	for _, name := range []string{"github", "image", "template"} {
+	for _, name := range []string{"github", "image", "template", "empty"} {
 		value, ok := req.ConfigValue.Attributes()[name]
 		if !ok || value.IsNull() {
 			continue
@@ -569,6 +662,6 @@ func (sourceExactlyOne) ValidateObject(_ context.Context, req validator.ObjectRe
 		set++
 	}
 	if set != 1 {
-		resp.Diagnostics.AddAttributeError(req.Path, "Invalid source", "Set exactly one of github, image or template.")
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid source", "Set exactly one of github, image, template or empty.")
 	}
 }

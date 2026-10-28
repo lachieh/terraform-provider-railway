@@ -83,16 +83,21 @@ resource "railway_service" "web" {
 
 - `build` (Attributes) Build settings. (see [below for nested schema](#nestedatt--build))
 - `cdn` (Attributes) Edge caching for the service's public domains, as `railway.ServiceCdn`. Applies without a deploy. (see [below for nested schema](#nestedatt--cdn))
+- `cluster_display` (Attributes) How the canvas labels a cluster member. (see [below for nested schema](#nestedatt--cluster_display))
+- `cluster_role` (String) Role in a cluster: `root`, `replica`, `internal` or `edge`.
 - `config_file` (String) Path of a Railway config file in the repository.
 - `custom_domains` (Attributes Map) Custom domains keyed by host name. The SDK defaults `port` to `8080`. (see [below for nested schema](#nestedatt--custom_domains))
 - `deploy` (Attributes) Deploy settings. (see [below for nested schema](#nestedatt--deploy))
 - `group` (String) Name of the canvas group the service belongs to.
 - `num_replicas` (Number) Replica count in the service's default region. Conflicts with `replicas`.
+- `parent_service_id` (String) ID of the service this one is a cluster member of.
 - `preserve_variables` (List of String) Variables Railway keeps with their current values, as `railway.Preserve()`. Use for secrets set outside Terraform.
+- `replica_config` (Attributes) Scaling bounds for a cluster. (see [below for nested schema](#nestedatt--replica_config))
+- `replica_stackers` (Map of String) Stacker assignment per region, for regions listed in `replicas`.
 - `replicas` (Map of Number) Replica count per region, such as `{ "us-west2" = 1 }`.
 - `service_domains` (Attributes Map) Railway-generated `*.up.railway.app` domains keyed by host name. (see [below for nested schema](#nestedatt--service_domains))
 - `shared_variables` (Map of String) Variables that reference an environment shared variable, keyed by variable and valued by shared variable name, as `railway.Shared`.
-- `source` (Attributes) Where the service's code comes from. Set exactly one of `github`, `image` or `template`; omit for an empty service. (see [below for nested schema](#nestedatt--source))
+- `source` (Attributes) Where the service's code comes from. Set exactly one of `github`, `image`, `template` or `empty`; omit for an empty service. (see [below for nested schema](#nestedatt--source))
 - `tcp_proxies` (List of Number) Application ports exposed through Railway's TCP proxy.
 - `tracing` (Attributes) OpenTelemetry tracing switches. (see [below for nested schema](#nestedatt--tracing))
 - `variable_references` (Attributes Map) Variables that reference another resource's output, as `railway.Ref`. (see [below for nested schema](#nestedatt--variable_references))
@@ -134,6 +139,15 @@ Optional:
 - `html_caching` (String) `auto`, `force` or `never`.
 - `purge_on_deploy` (String) `off`, `html` or `all`.
 - `stale_while_revalidate` (Boolean) Honour `stale-while-revalidate`. Railway's default is `true`.
+
+
+<a id="nestedatt--cluster_display"></a>
+### Nested Schema for `cluster_display`
+
+Optional:
+
+- `badge` (String) Badge text.
+- `badge_variant` (String) `primary`, `secondary` or `muted`.
 
 
 <a id="nestedatt--custom_domains"></a>
@@ -183,6 +197,17 @@ Required:
 
 
 
+<a id="nestedatt--replica_config"></a>
+### Nested Schema for `replica_config`
+
+Optional:
+
+- `max_replicas` (Number) Most replicas.
+- `min_replicas` (Number) Fewest replicas.
+- `scalable` (Boolean) Whether the cluster scales.
+- `step` (Number) Replicas added or removed per scaling step.
+
+
 <a id="nestedatt--service_domains"></a>
 ### Nested Schema for `service_domains`
 
@@ -196,9 +221,18 @@ Optional:
 
 Optional:
 
+- `empty` (Attributes) No source, as `railway.Empty`: deploys come from `railway up` or the dashboard. (see [below for nested schema](#nestedatt--source--empty))
 - `github` (Attributes) A GitHub repository, as `railway.Github`. (see [below for nested schema](#nestedatt--source--github))
 - `image` (Attributes) A Docker image, as `railway.Image`. (see [below for nested schema](#nestedatt--source--image))
 - `template` (Attributes) A Railway template service, as `railway.Template`. (see [below for nested schema](#nestedatt--source--template))
+
+<a id="nestedatt--source--empty"></a>
+### Nested Schema for `source.empty`
+
+Optional:
+
+- `root_directory` (String) Directory uploads build from.
+
 
 <a id="nestedatt--source--github"></a>
 ### Nested Schema for `source.github`
@@ -211,6 +245,7 @@ Optional:
 
 - `branch` (String) Branch to deploy. `railway.Github` defaults it to `main`, so a branch owned by the environment, as in pull request environments, cannot be expressed.
 - `check_suites` (Boolean) Wait for GitHub check suites before deploying.
+- `commit_sha` (String) Commit to deploy instead of the branch head.
 - `root_directory` (String) Directory of the repository to build from.
 
 

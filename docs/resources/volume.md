@@ -39,6 +39,7 @@ resource "railway_volume" "postgres" {
 
 - `allow_online_resize` (Boolean) Resize without stopping the service.
 - `fork_from_base_environment` (Boolean) Create the volume in a forked environment from the base environment's data.
+- `group` (String) Name of the canvas group the volume belongs to.
 - `region` (String) Region the volume lives in.
 - `size_mb` (Number) Size in megabytes.
 - `usage_alerts` (List of Number) Usage percentages that send an alert, such as `[80, 95, 100]`.

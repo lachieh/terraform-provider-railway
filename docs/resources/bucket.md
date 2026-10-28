@@ -34,6 +34,7 @@ resource "railway_bucket" "backups" {
 
 ### Optional
 
+- `group` (String) Name of the canvas group the bucket belongs to.
 - `region` (String) `sjc`, `iad`, `ams` or `sin`.
 
 ### Read-Only
