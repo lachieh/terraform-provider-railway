@@ -12,7 +12,7 @@ import (
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/provider"
 )
 
-//go:generate go tool tfplugindocs generate --provider-name railway --rendered-provider-name Railway
+//go:generate go tool tfplugindocs generate --provider-name railway --rendered-provider-name Railway --tf-version 1.17.0
 
 var version = "dev"
 

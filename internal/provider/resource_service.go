@@ -144,7 +144,7 @@ func NewServiceResource() resource.Resource {
 				Optional:            true,
 				Attributes: map[string]schema.Attribute{
 					"repo":           schema.StringAttribute{MarkdownDescription: "`owner/name` of the repository.", Required: true},
-					"branch":         schema.StringAttribute{MarkdownDescription: "Branch to deploy. The SDK defaults it to `main`.", Optional: true},
+					"branch":         schema.StringAttribute{MarkdownDescription: "Branch to deploy. `railway.Github` defaults it to `main`, so a branch owned by the environment, as in pull request environments, cannot be expressed.", Optional: true},
 					"check_suites":   schema.BoolAttribute{MarkdownDescription: "Wait for GitHub check suites before deploying.", Optional: true},
 					"root_directory": schema.StringAttribute{MarkdownDescription: "Directory of the repository to build from.", Optional: true},
 				},
@@ -194,8 +194,10 @@ func NewServiceResource() resource.Resource {
 	return &nodeResource[serviceModel]{kind: nodeKind[serviceModel]{
 		graphType: "service",
 		description: "A Railway service in one environment, built with `railway.ServiceNamed`. " +
-			"Attributes left unset stay as Railway has them; variables are managed, so a variable missing from " +
-			"`variables`, `preserve_variables`, `shared_variables` and `variable_references` is deleted.",
+			"The configuration is the service's whole definition, as a `railway.go` file is for `railway config apply`: " +
+			"a source, build or deploy setting left unset is reset to Railway's default, and a variable missing from " +
+			"`variables`, `preserve_variables`, `shared_variables` and `variable_references` is deleted. " +
+			"Domains and TCP proxies the configuration does not list stay attached.",
 		attributes: attributes,
 		common:     func(m *serviceModel) *commonModel { return &m.commonModel },
 		build: func(m *serviceModel) func() any {
@@ -506,7 +508,7 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 			}},
 		},
 		"volume_mounts": schema.MapAttribute{
-			MarkdownDescription: "Volumes keyed by mount path and valued by `railway_volume` name.",
+			MarkdownDescription: "Volumes keyed by mount path and valued by `railway_volume` name. Reference the volume (`railway_volume.data.name`) so Terraform orders the two. Backup schedules cannot be set through the SDK's volume mounts.",
 			Optional:            true,
 			ElementType:         types.StringType,
 		},

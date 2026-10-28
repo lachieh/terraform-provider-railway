@@ -32,7 +32,11 @@ func requireCLI(t *testing.T) {
 		names = []string{only}
 	}
 	for _, name := range names {
-		if path, err := exec.LookPath(name); err == nil && exec.Command(path, "version").Run() == nil {
+		// Check from outside the repository: a version-manager shim can
+		// resolve here and fail in the test's working directory.
+		version := exec.Command(name, "version")
+		version.Dir = t.TempDir()
+		if path, err := exec.LookPath(name); err == nil && version.Run() == nil {
 			t.Setenv("TF_ACC_TERRAFORM_PATH", path)
 			if name == "tofu" {
 				t.Setenv("TF_ACC_PROVIDER_HOST", "registry.opentofu.org")

@@ -3,12 +3,12 @@
 page_title: "railway_service Resource - Railway"
 subcategory: ""
 description: |-
-  A Railway service in one environment, built with railway.ServiceNamed. Attributes left unset stay as Railway has them; variables are managed, so a variable missing from variables, preserve_variables, shared_variables and variable_references is deleted.
+  A Railway service in one environment, built with railway.ServiceNamed. The configuration is the service's whole definition, as a railway.go file is for railway config apply: a source, build or deploy setting left unset is reset to Railway's default, and a variable missing from variables, preserve_variables, shared_variables and variable_references is deleted. Domains and TCP proxies the configuration does not list stay attached.
 ---
 
 # railway_service (Resource)
 
-A Railway service in one environment, built with `railway.ServiceNamed`. Attributes left unset stay as Railway has them; variables are managed, so a variable missing from `variables`, `preserve_variables`, `shared_variables` and `variable_references` is deleted.
+A Railway service in one environment, built with `railway.ServiceNamed`. The configuration is the service's whole definition, as a `railway.go` file is for `railway config apply`: a source, build or deploy setting left unset is reset to Railway's default, and a variable missing from `variables`, `preserve_variables`, `shared_variables` and `variable_references` is deleted. Domains and TCP proxies the configuration does not list stay attached.
 
 ## Example Usage
 
@@ -97,7 +97,7 @@ resource "railway_service" "web" {
 - `tracing` (Attributes) OpenTelemetry tracing switches. (see [below for nested schema](#nestedatt--tracing))
 - `variable_references` (Attributes Map) Variables that reference another resource's output, as `railway.Ref`. (see [below for nested schema](#nestedatt--variable_references))
 - `variables` (Map of String) Variables with literal values. Railway expands `${{service.VAR}}` templates in values.
-- `volume_mounts` (Map of String) Volumes keyed by mount path and valued by `railway_volume` name.
+- `volume_mounts` (Map of String) Volumes keyed by mount path and valued by `railway_volume` name. Reference the volume (`railway_volume.data.name`) so Terraform orders the two. Backup schedules cannot be set through the SDK's volume mounts.
 
 ### Read-Only
 
@@ -209,7 +209,7 @@ Required:
 
 Optional:
 
-- `branch` (String) Branch to deploy. The SDK defaults it to `main`.
+- `branch` (String) Branch to deploy. `railway.Github` defaults it to `main`, so a branch owned by the environment, as in pull request environments, cannot be expressed.
 - `check_suites` (Boolean) Wait for GitHub check suites before deploying.
 - `root_directory` (String) Directory of the repository to build from.
 

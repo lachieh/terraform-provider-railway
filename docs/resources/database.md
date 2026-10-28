@@ -58,7 +58,7 @@ resource "railway_database" "postgres" {
 - `tracing` (Attributes) OpenTelemetry tracing switches. (see [below for nested schema](#nestedatt--tracing))
 - `variable_references` (Attributes Map) Variables that reference another resource's output, as `railway.Ref`. (see [below for nested schema](#nestedatt--variable_references))
 - `variables` (Map of String) Variables with literal values. Railway expands `${{service.VAR}}` templates in values.
-- `volume_mounts` (Map of String) Volumes keyed by mount path and valued by `railway_volume` name.
+- `volume_mounts` (Map of String) Volumes keyed by mount path and valued by `railway_volume` name. Reference the volume (`railway_volume.data.name`) so Terraform orders the two. Backup schedules cannot be set through the SDK's volume mounts.
 
 ### Read-Only
 

@@ -21,9 +21,9 @@ Declare the provider under the local name `railway` with the source `tambo-ai/ra
 
 Each resource is one node of a Railway environment's IaC graph, addressed by type and name (`service.web`). The provider builds the node with [`railway-go-sdk`](https://github.com/railwayapp/railway-go-sdk), diffs it against the live environment with the same engine `railway config plan` uses, and has Railway preview the result. An apply sends that ChangeSet through `environmentApplyChangeSet` against the environment's current configuration version, and replans if another writer moved it.
 
-- Attributes you leave unset stay as Railway has them. Variables are the exception: a resource manages all of a service's variables, so keep secrets set outside Terraform in `preserve_variables`.
+- A resource's configuration is its whole definition, as a `railway.go` file is for `railway config apply`. A source, build or deploy setting you leave unset is reset to Railway's default, and a variable you leave out is deleted; keep secrets set outside Terraform in `preserve_variables`. Domains and TCP proxies you do not list stay attached.
 - A refresh records the changes Railway needs in `live_changes`. A plan shows them leaving, and warns with the full list of changes it will send.
-- Creating a resource that already exists fails; import it with `<environment_id>/<type>.<name>`.
+- Creating a resource that already exists fails; import it with `<environment_id>/<type>.<name>`. The first plan after an import lists every configured setting as added and `live_changes` as computed from an empty configuration; the plan's \"Railway changes\" warning is the list that will be applied.
 - With `partial` set, resources owned by another partial are refused, as they are for a `railway.go` file that declares `const Partial`.
 
 {{ .SchemaMarkdown | trimspace }}
