@@ -1,0 +1,4 @@
+[tools]
+go = "1.25.8"
+opentofu = "1.13.2"
+golangci-lint = "2.15.0"
