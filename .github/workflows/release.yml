@@ -64,10 +64,17 @@ jobs:
           subject-path: |
             dist/*.zip
             dist/*_SHA256SUMS
-            dist/*_manifest.json
-      - name: Verify attestation
+            dist/*_SHA256SUMS.sig
+            terraform-registry-manifest.json
+      - name: Verify attestations
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -- dist/*.zip
-          gh attestation verify "$1" --repo "$GITHUB_REPOSITORY"
+          for artifact in dist/*.zip dist/*_SHA256SUMS; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+          done
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"

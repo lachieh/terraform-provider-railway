@@ -42,6 +42,8 @@ signs:
       - ${artifact}
 
 release:
+  # Published by the workflow only after the attestations verify.
+  draft: true
   extra_files:
     - glob: terraform-registry-manifest.json
       name_template: "{{ .ProjectName }}_{{ .Version }}_manifest.json"
