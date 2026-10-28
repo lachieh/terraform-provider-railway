@@ -2,6 +2,7 @@ package railwayapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -35,9 +36,9 @@ const (
 // Preview is backboard's normalized change set with its diagnostics and
 // predicted effects.
 type Preview struct {
-	ChangeSet   map[string]any `json:"changeSet"`
-	Diagnostics any            `json:"diagnostics"`
-	Effects     any            `json:"effects"`
+	ChangeSet   map[string]any  `json:"changeSet"`
+	Diagnostics json.RawMessage `json:"diagnostics"`
+	Effects     json.RawMessage `json:"effects"`
 }
 
 // ApplyChange is the outcome of one operation within an apply.

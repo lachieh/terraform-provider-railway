@@ -248,3 +248,29 @@ func TestRetryAfterParsing(t *testing.T) {
 		t.Error("retryAfter accepted garbage")
 	}
 }
+
+func TestEchoedTokenIsScrubbed(t *testing.T) {
+	tests := map[string]func(req recordedRequest, w http.ResponseWriter){
+		"HTTP body": func(req recordedRequest, w http.ResponseWriter) {
+			writeJSON(w, 502, "proxy saw "+req.Header.Get("Authorization"))
+		},
+		"GraphQL message": func(req recordedRequest, w http.ResponseWriter) {
+			writeJSON(w, 200, mustJSON(t, map[string]any{"errors": []any{map[string]any{"message": "token " + testToken + " is invalid"}}}))
+		},
+	}
+	for name, respond := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(t, func(_ int, req recordedRequest, w http.ResponseWriter) { respond(req, w) })
+			err := f.client(t, Credential{Token: testToken}).Do(context.Background(), "query { x }", nil, nil)
+			if err == nil {
+				t.Fatal("request succeeded")
+			}
+			if strings.Contains(err.Error(), testToken) {
+				t.Errorf("error leaks token: %v", err)
+			}
+			if !strings.Contains(err.Error(), "[REDACTED]") {
+				t.Errorf("error lost the redacted context: %v", err)
+			}
+		})
+	}
+}

@@ -185,7 +185,7 @@ func TestPreviewChangeSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(preview.ChangeSet, changeSet) || preview.Effects == nil {
+	if !reflect.DeepEqual(preview.ChangeSet, changeSet) || string(preview.Effects) != `[{"kind":"redeploy"}]` {
 		t.Errorf("preview = %+v", preview)
 	}
 	want := map[string]any{"environmentId": "env", "input": changeSet}

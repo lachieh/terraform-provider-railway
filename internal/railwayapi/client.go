@@ -44,6 +44,7 @@ type Client struct {
 	retryBase    time.Duration
 	headerName   string
 	headerValue  string
+	secret       string
 }
 
 // Option configures a Client.
@@ -89,9 +90,9 @@ func New(cred Credential, opts ...Option) (*Client, error) {
 	case cred.Token != "" && cred.ProjectToken != "":
 		return nil, errors.New("railway credential: set either an account/workspace token or a project token, not both")
 	case cred.Token != "":
-		c.headerName, c.headerValue = "Authorization", "Bearer "+cred.Token
+		c.headerName, c.headerValue, c.secret = "Authorization", "Bearer "+cred.Token, cred.Token
 	case cred.ProjectToken != "":
-		c.headerName, c.headerValue = "Project-Access-Token", cred.ProjectToken
+		c.headerName, c.headerValue, c.secret = "Project-Access-Token", cred.ProjectToken, cred.ProjectToken
 	default:
 		return nil, errors.New("railway credential: a token or project token is required")
 	}
@@ -180,7 +181,7 @@ func (c *Client) Do(ctx context.Context, query string, variables map[string]any,
 			return err
 		}
 		if status == http.StatusTooManyRequests || status >= 500 {
-			lastErr = httpOrGraphQLError(status, payload)
+			lastErr = httpOrGraphQLError(status, payload, c.secret)
 			if attempt == maxAttempts-1 {
 				break
 			}
@@ -189,7 +190,7 @@ func (c *Client) Do(ctx context.Context, query string, variables map[string]any,
 			}
 			continue
 		}
-		return decode(status, payload, out)
+		return decode(status, payload, out, c.secret)
 	}
 	return fmt.Errorf("railway API request failed after %d attempts: %w", maxAttempts, lastErr)
 }
@@ -206,7 +207,7 @@ func (c *Client) post(ctx context.Context, body []byte) (int, http.Header, []byt
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("railway API request: %w", redact(err, c.headerValue))
+		return 0, nil, nil, fmt.Errorf("railway API request: %w", redact(err, c.secret))
 	}
 	defer resp.Body.Close()
 	payload, err := io.ReadAll(resp.Body)
@@ -216,19 +217,19 @@ func (c *Client) post(ctx context.Context, body []byte) (int, http.Header, []byt
 	return resp.StatusCode, resp.Header, payload, nil
 }
 
-func decode(status int, payload []byte, out any) error {
+func decode(status int, payload []byte, out any, secret string) error {
 	var resp response
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		if status < 200 || status > 299 {
-			return &HTTPError{StatusCode: status, Body: excerpt(payload)}
+			return &HTTPError{StatusCode: status, Body: excerpt(payload, secret)}
 		}
 		return fmt.Errorf("decode railway API response: %w", err)
 	}
 	if len(resp.Errors) > 0 {
-		return &GraphQLError{StatusCode: status, Errors: resp.Errors}
+		return newGraphQLError(status, resp.Errors, secret)
 	}
 	if status < 200 || status > 299 {
-		return &HTTPError{StatusCode: status, Body: excerpt(payload)}
+		return &HTTPError{StatusCode: status, Body: excerpt(payload, secret)}
 	}
 	if len(resp.Data) == 0 || string(resp.Data) == "null" {
 		return errors.New("railway API response has no data")
@@ -242,16 +243,32 @@ func decode(status int, payload []byte, out any) error {
 	return nil
 }
 
-func httpOrGraphQLError(status int, payload []byte) error {
+func httpOrGraphQLError(status int, payload []byte, secret string) error {
 	var resp response
 	if json.Unmarshal(payload, &resp) == nil && len(resp.Errors) > 0 {
-		return &GraphQLError{StatusCode: status, Errors: resp.Errors}
+		return newGraphQLError(status, resp.Errors, secret)
 	}
-	return &HTTPError{StatusCode: status, Body: excerpt(payload)}
+	return &HTTPError{StatusCode: status, Body: excerpt(payload, secret)}
 }
 
-func excerpt(payload []byte) string {
-	s := strings.TrimSpace(string(payload))
+// newGraphQLError scrubs secret from messages, since a server may echo the
+// credential it rejected.
+func newGraphQLError(status int, items []GraphQLErrorItem, secret string) *GraphQLError {
+	for i := range items {
+		items[i].Message = scrub(items[i].Message, secret)
+	}
+	return &GraphQLError{StatusCode: status, Errors: items}
+}
+
+func scrub(s, secret string) string {
+	if secret == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, secret, "[REDACTED]")
+}
+
+func excerpt(payload []byte, secret string) string {
+	s := scrub(strings.TrimSpace(string(payload)), secret)
 	if len(s) > errorBodyExcerpt {
 		s = s[:errorBodyExcerpt] + "…"
 	}
@@ -302,5 +319,5 @@ func redact(err error, secret string) error {
 	if secret == "" || !strings.Contains(err.Error(), secret) {
 		return err
 	}
-	return &redactedError{msg: strings.ReplaceAll(err.Error(), secret, "[REDACTED]"), err: err}
+	return &redactedError{msg: scrub(err.Error(), secret), err: err}
 }
