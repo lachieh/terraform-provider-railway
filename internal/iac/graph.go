@@ -1,3 +1,5 @@
+// Ported from railwayapp/cli src/iac/graph.rs (MIT, Copyright (c) Railway Corp.)
+
 // Package iac is a Go port of the Railway CLI's Infrastructure as Code
 // engine (railwayapp/cli src/iac). It converts between the project
 // definition the railway-go-sdk emits, the RailwayGraph the engine diffs, and
@@ -10,7 +12,10 @@
 // so the output matches the CLI, whose serde_json maps are BTreeMaps.
 package iac
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	GraphVersion     = 1
@@ -59,6 +64,38 @@ func (p VariablePolicy) IsUnspecified() bool {
 }
 
 func (p VariablePolicy) IsZero() bool { return p.IsUnspecified() }
+
+// VariablePolicyReportResult is the plan/apply summary of the policy against
+// the live environment.
+type VariablePolicyReportResult struct {
+	Managed      bool           `json:"managed"`
+	Ignore       []string       `json:"ignore"`
+	Default      bool           `json:"default"`
+	IgnoredCount int            `json:"ignoredCount"`
+	ByPattern    map[string]int `json:"byPattern"`
+}
+
+// FormatVariablePolicyLine renders the plan header line. railwayVariables is
+// every variable key on the current graph; database template variables are
+// not on that graph.
+func FormatVariablePolicyLine(report VariablePolicyReportResult, railwayVariables int) string {
+	if !report.Managed {
+		return fmt.Sprintf("variables: unmanaged · %d on Railway not managed", railwayVariables)
+	}
+	if report.IgnoredCount > 0 {
+		var listed []string
+		for _, pattern := range report.Ignore {
+			if count := report.ByPattern[pattern]; count > 0 {
+				listed = append(listed, fmt.Sprintf("%s %d", pattern, count))
+			}
+		}
+		return fmt.Sprintf("variables: managed · %d ignored on Railway (%s)", report.IgnoredCount, strings.Join(listed, ", "))
+	}
+	if report.Default {
+		return "variables: managed (default)"
+	}
+	return "variables: managed"
+}
 
 type Diagnostic struct {
 	Severity string `json:"severity"`

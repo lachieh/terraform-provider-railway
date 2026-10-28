@@ -1,3 +1,5 @@
+// Ported from railwayapp/cli src/iac/partial.rs (MIT, Copyright (c) Railway Corp.)
+
 package iac
 
 import (
