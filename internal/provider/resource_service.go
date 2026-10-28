@@ -200,7 +200,7 @@ func NewServiceResource() resource.Resource {
 		common:     func(m *serviceModel) *commonModel { return &m.commonModel },
 		build: func(m *serviceModel) func() any {
 			return func() any {
-				config := m.serviceSettings.config()
+				config := m.config()
 				if source := m.Source.sdk(); source != nil {
 					config["source"] = source
 				}
@@ -287,11 +287,7 @@ func (s *serviceSettings) config() railway.ServiceConfig {
 		}
 		config["tcp"] = ports
 	}
-	references := map[string]variableReference{}
-	for key, reference := range s.VariableReferences {
-		references[key] = variableReference{Resource: reference.Resource, Output: reference.Output}
-	}
-	if env := variableEnv(s.Variables, s.PreserveVariables, s.SharedVariables, references); len(env) > 0 {
+	if env := variableEnv(s.Variables, s.PreserveVariables, s.SharedVariables, s.VariableReferences); len(env) > 0 {
 		config["env"] = env
 	}
 	if s.VolumeMounts != nil {

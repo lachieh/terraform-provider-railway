@@ -1,3 +1,5 @@
+// Command terraform-provider-railway-iac-sdk serves the railway provider
+// over the Terraform plugin protocol.
 package main
 
 import (
@@ -10,7 +12,7 @@ import (
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/provider"
 )
 
-//go:generate go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name railway --rendered-provider-name Railway
+//go:generate go tool tfplugindocs generate --provider-name railway --rendered-provider-name Railway
 
 var version = "dev"
 

@@ -35,6 +35,20 @@ linters:
         linters:
           - revive
         text: "exported|package-comments|should have a package comment"
+      # internal/iac is a port of railwayapp/cli and similar; it keeps the
+      # upstream control flow and messages so it can be re-synced line by line.
+      - path: ^internal/iac/
+        linters:
+          - staticcheck
+        text: "QF1001"
+      - path: ^internal/iac/
+        linters:
+          - gocritic
+        text: "ifElseChain"
+      - path: ^internal/iac/
+        linters:
+          - revive
+        text: "redefines-builtin-id|error-strings"
 
 formatters:
   enable:

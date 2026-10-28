@@ -46,7 +46,7 @@ func graphNode(address string, build func() any) (node map[string]any, err error
 
 // variableEnv builds the SDK env map: literal values, preserved keys, and
 // references to shared variables and other resources' outputs.
-func variableEnv(literals map[string]string, preserve []string, shared map[string]string, references map[string]variableReference) map[string]any {
+func variableEnv(literals map[string]string, preserve []string, shared map[string]string, references map[string]referenceModel) map[string]any {
 	env := map[string]any{}
 	for key, value := range literals {
 		env[key] = value
@@ -61,11 +61,6 @@ func variableEnv(literals map[string]string, preserve []string, shared map[strin
 		env[key] = map[string]any{"type": "reference", "resource": reference.Resource, "output": reference.Output}
 	}
 	return env
-}
-
-type variableReference struct {
-	Resource string
-	Output   string
 }
 
 // putString, putInt and putBool set a key only for a value the configuration

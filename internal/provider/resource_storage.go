@@ -58,7 +58,7 @@ func NewDatabaseResource() resource.Resource {
 				putString(options, "image", m.Image)
 				putString(options, "region", m.Region)
 				database := databaseConstructors[m.Engine](m.Name.ValueString(), options)
-				return overlayService(database.Graph(), m.Name.ValueString(), m.serviceSettings.config())
+				return overlayService(database.Graph(), m.Name.ValueString(), m.config())
 			}
 		},
 	}}

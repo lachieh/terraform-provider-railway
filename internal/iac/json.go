@@ -39,11 +39,6 @@ func get(value any, name string) (any, bool) {
 	return child, ok
 }
 
-func asObject(value any) (map[string]any, bool) {
-	object, ok := value.(map[string]any)
-	return object, ok
-}
-
 func isObject(value any) bool {
 	_, ok := value.(map[string]any)
 	return ok

@@ -15,7 +15,7 @@ func TestFetchEnvironmentFallsBackWithoutIACPartials(t *testing.T) {
 	envJSON := `{"id":"env","name":"pr-7","projectId":"proj","isEphemeral":true,
 		"meta":{"branch":"feat/x","prNumber":7,"prRepo":"acme/app"},"sourceEnvironment":{"name":"production"},
 		"config":{"services":{}},"configEtag":"etag-1","canvasGroupRefs":{"vol-1":"group-1"}}`
-	f := newFake(t, func(n int, req recordedRequest, w http.ResponseWriter) {
+	f := newFake(t, func(_ int, req recordedRequest, w http.ResponseWriter) {
 		if strings.Contains(req.Query, "iacPartials") {
 			writeJSON(w, 400, `{"errors":[{"message":"Cannot query field \"iacPartials\" on type \"Environment\"."}]}`)
 			return
@@ -195,7 +195,7 @@ func TestPreviewChangeSet(t *testing.T) {
 }
 
 func TestApplyChangeSetPollsUntilApplied(t *testing.T) {
-	f := newFake(t, func(n int, req recordedRequest, w http.ResponseWriter) {
+	f := newFake(t, func(n int, _ recordedRequest, w http.ResponseWriter) {
 		switch n {
 		case 0:
 			writeJSON(w, 200, `{"data":{"environmentApplyChangeSet":{"id":"apply-1","status":"applying","diagnostics":[],"changes":[]}}}`)

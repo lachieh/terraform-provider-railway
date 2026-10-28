@@ -23,16 +23,6 @@ func obj(text string) map[string]any {
 }
 
 // merge returns base with every key of the extras written over it.
-func merge(base map[string]any, extras ...map[string]any) map[string]any {
-	out := CloneMap(base)
-	for _, extra := range extras {
-		for key, value := range extra {
-			out[key] = value
-		}
-	}
-	return out
-}
-
 func toValues(resources []map[string]any) []any {
 	out := make([]any, len(resources))
 	for index, resource := range resources {

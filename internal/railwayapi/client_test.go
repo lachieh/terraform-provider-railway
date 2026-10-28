@@ -254,7 +254,7 @@ func TestEchoedTokenIsScrubbed(t *testing.T) {
 		"HTTP body": func(req recordedRequest, w http.ResponseWriter) {
 			writeJSON(w, 502, "proxy saw "+req.Header.Get("Authorization"))
 		},
-		"GraphQL message": func(req recordedRequest, w http.ResponseWriter) {
+		"GraphQL message": func(_ recordedRequest, w http.ResponseWriter) {
 			writeJSON(w, 200, mustJSON(t, map[string]any{"errors": []any{map[string]any{"message": "token " + testToken + " is invalid"}}}))
 		},
 	}

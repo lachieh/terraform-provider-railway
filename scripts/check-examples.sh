@@ -54,13 +54,14 @@ terraform {
 HCL
 	fi
 	count=$((count + 1))
-	if TF_CLI_CONFIG_FILE="$cli_config" "$TOFU" -chdir="$work" init -backend=false -input=false >"$work/init.log" 2>&1 &&
-		TF_CLI_CONFIG_FILE="$cli_config" "$TOFU" -chdir="$work" validate >"$work/validate.log" 2>&1; then
+	# dev_overrides providers need no init; init would look the provider up in
+	# the registry, which fails before the first release.
+	if TF_CLI_CONFIG_FILE="$cli_config" "$TOFU" -chdir="$work" validate -no-color >"$work/validate.log" 2>&1; then
 		echo "ok   $dir"
 	else
 		failed=$((failed + 1))
 		echo "FAIL $dir" >&2
-		cat "$work/init.log" "$work/validate.log" 2>/dev/null >&2 || true
+		cat "$work/validate.log" >&2
 	fi
 done
 

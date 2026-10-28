@@ -11,20 +11,19 @@ description: |-
 
 ## Example Usage
 
-Declare the provider with the source `tambo-ai/railway-iac-sdk`. Its resources are named `railway_service`, `railway_volume`, and so on.
-
-```terraform
-terraform {
-  required_providers {
-    railway = {
-      source = "tambo-ai/railway-iac-sdk"
-    }
-  }
-}
-```
+Declare the provider under the local name `railway` with the source `tambo-ai/railway-iac-sdk`, so its resources are `railway_service`, `railway_database`, `railway_volume` and `railway_bucket`.
 
 {{ if .HasExample -}}
 {{ tffile .ExampleFile }}
 {{- end }}
+
+## How plans work
+
+Each resource is one node of a Railway environment's IaC graph, addressed by type and name (`service.web`). The provider builds the node with [`railway-go-sdk`](https://github.com/railwayapp/railway-go-sdk), diffs it against the live environment with the same engine `railway config plan` uses, and has Railway preview the result. An apply sends that ChangeSet through `environmentApplyChangeSet` against the environment's current configuration version, and replans if another writer moved it.
+
+- Attributes you leave unset stay as Railway has them. Variables are the exception: a resource manages all of a service's variables, so keep secrets set outside Terraform in `preserve_variables`.
+- A refresh records the changes Railway needs in `live_changes`. A plan shows them leaving, and warns with the full list of changes it will send.
+- Creating a resource that already exists fails; import it with `<environment_id>/<type>.<name>`.
+- With `partial` set, resources owned by another partial are refused, as they are for a `railway.go` file that declares `const Partial`.
 
 {{ .SchemaMarkdown | trimspace }}
