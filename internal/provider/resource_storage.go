@@ -18,11 +18,11 @@ import (
 type databaseModel struct {
 	commonModel
 	serviceSettings
-	Engine           string  `tfsdk:"engine"`
-	Image            *string `tfsdk:"image"`
-	Region           *string `tfsdk:"region"`
-	Output           *string `tfsdk:"output"`
-	DefaultMountPath *string `tfsdk:"default_mount_path"`
+	Engine           types.String `tfsdk:"engine"`
+	Image            *string      `tfsdk:"image"`
+	Region           *string      `tfsdk:"region"`
+	Output           *string      `tfsdk:"output"`
+	DefaultMountPath *string      `tfsdk:"default_mount_path"`
 }
 
 // databaseConstructors are the SDK's managed database templates.
@@ -70,13 +70,13 @@ func NewDatabaseResource() resource.Resource {
 				putString(options, "output", m.Output)
 				putString(options, "defaultMountPath", m.DefaultMountPath)
 				var database railway.Resource
-				if template, ok := databaseConstructors[m.Engine]; ok {
+				if template, ok := databaseConstructors[m.Engine.ValueString()]; ok {
 					database = template(m.Name.ValueString(), options)
 				} else {
 					if m.Image == nil {
-						panic("A " + m.Engine + " database is not a Railway template; set image.")
+						panic("A " + m.Engine.ValueString() + " database is not a Railway template; set image.")
 					}
-					database = railway.Database(m.Name.ValueString(), m.Engine, options)
+					database = railway.Database(m.Name.ValueString(), m.Engine.ValueString(), options)
 				}
 				return overlayService(database.Graph(), m.Name.ValueString(), m.config())
 			}

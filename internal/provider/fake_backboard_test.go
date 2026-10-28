@@ -144,6 +144,7 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 		}
 		f.applied = append(f.applied, changeSet)
 		f.apply(changeSet)
+		f.claim(changeSet)
 		return map[string]any{"environmentApplyChangeSet": map[string]any{
 			"id": fmt.Sprintf("apply-%d", f.etag), "status": "applied", "deploymentId": nil, "stagedPatchId": nil,
 			"diagnostics": []any{}, "changes": []any{},
@@ -214,6 +215,26 @@ func (f *fakeBackboard) apply(changeSet iac.ChangeSet) {
 	}
 	f.rebuild()
 	f.etag++
+}
+
+// claim records the applying partial as the owner of every declared
+// address, as backboard does, and drops owners of deleted resources.
+func (f *fakeBackboard) claim(changeSet iac.ChangeSet) {
+	if f.owners == nil {
+		f.owners = map[string]string{}
+	}
+	owner := iac.ProjectPartial
+	if changeSet.Partial != nil {
+		owner = *changeSet.Partial
+	}
+	for _, address := range changeSet.Declared {
+		f.owners[address] = owner
+	}
+	for address := range f.owners {
+		if f.graph.FindResource(address) == nil {
+			delete(f.owners, address)
+		}
+	}
 }
 
 func (f *fakeBackboard) remove(address string) {

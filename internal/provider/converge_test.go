@@ -3,6 +3,8 @@ package provider
 import (
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/types"
+
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
 )
 
@@ -56,7 +58,7 @@ func TestMatchingConfigurationPlansNoChanges(t *testing.T) {
 
 	cases["service.charming"] = build(t, serviceKind(), stagingCharming())
 	cases["database.postgres"] = build(t, NewDatabaseResource().(*nodeResource[databaseModel]).kind, &databaseModel{
-		commonModel: named("postgres"), Engine: "postgres", Region: ptr("us-west2"),
+		commonModel: named("postgres"), Engine: types.StringValue("postgres"), Region: ptr("us-west2"),
 		serviceSettings: serviceSettings{Deploy: &deployModel{DrainingSeconds: ptr(int64(0)), OverlapSeconds: ptr(int64(0))}},
 	})
 	cases["volume.postgres-volume"] = build(t, NewVolumeResource().(*nodeResource[volumeModel]).kind, &volumeModel{

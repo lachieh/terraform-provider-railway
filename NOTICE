@@ -53,3 +53,12 @@ License.
    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
    THE SOFTWARE.
+
+--------------------------------------------------------------------------
+
+internal/iac/linediff.go is ported from the `similar` Rust crate 2.5.0
+(https://github.com/mitsuhiko/similar), Copyright (c) Armin Ronacher,
+licensed under the Apache License, Version 2.0. The full license text is in
+LICENSES/similar-Apache-2.0.txt. The port is a translation of the Myers
+diff, compaction and replace hooks, and op grouping into Go; it carries no
+upstream NOTICE file.

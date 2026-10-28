@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	railway "github.com/railwayapp/railway-go-sdk"
 
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
@@ -16,9 +17,9 @@ import (
 type functionModel struct {
 	commonModel
 	serviceSettings
-	Code    string  `tfsdk:"code"`
-	Runtime *string `tfsdk:"runtime"`
-	Image   *string `tfsdk:"image"`
+	Code    types.String `tfsdk:"code"`
+	Runtime *string      `tfsdk:"runtime"`
+	Image   *string      `tfsdk:"image"`
 }
 
 func NewFunctionResource() resource.Resource {
@@ -56,7 +57,7 @@ func NewFunctionResource() resource.Resource {
 				if deploy, ok := config["deploy"].(map[string]any); ok && deploy["startCommand"] != nil {
 					panic("Function code and deploy.start_command are mutually exclusive: the code is the start command.")
 				}
-				config["start"] = railway.FunctionStartCommand(m.Code)
+				config["start"] = railway.FunctionStartCommand(m.Code.ValueString())
 				switch {
 				case m.Image != nil:
 					config["source"] = railway.Image(*m.Image)

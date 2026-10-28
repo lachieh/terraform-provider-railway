@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/railwayapi"
 )
 
 const (
-	commitMessage     = "Apply Terraform configuration"
-	maxEtagRetries    = 3
+	commitMessage  = "Apply Terraform configuration"
+	maxEtagRetries = 3
+	// applyTimeout bounds one ChangeSet apply, polling included.
+	applyTimeout      = 10 * time.Minute
 	telemetryLanguage = "terraform"
 )
 
@@ -221,7 +224,9 @@ func (e *engine) apply(ctx context.Context, environmentID, address string, desir
 		}
 
 		changeSet := e.changeSet(planned, desired != nil)
-		result, err := e.client.ApplyChangeSet(ctx, environmentID, changeSet, snap.env.ConfigEtag, commitMessage)
+		applyCtx, cancel := context.WithTimeout(ctx, applyTimeout)
+		result, err := e.client.ApplyChangeSet(applyCtx, environmentID, changeSet, snap.env.ConfigEtag, commitMessage)
+		cancel()
 		if err != nil {
 			if railwayapi.IsConfigEtagConflict(err) && attempt < maxEtagRetries {
 				continue

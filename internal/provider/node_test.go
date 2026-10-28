@@ -177,7 +177,7 @@ func TestDatabaseNodeOverlaysDeploySettings(t *testing.T) {
 	kind := NewDatabaseResource().(*nodeResource[databaseModel]).kind
 	model := &databaseModel{
 		commonModel: named("postgres"),
-		Engine:      "postgres",
+		Engine:      types.StringValue("postgres"),
 		Region:      ptr("us-west2"),
 		serviceSettings: serviceSettings{Deploy: &deployModel{
 			DrainingSeconds: ptr(int64(0)),

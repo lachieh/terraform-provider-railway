@@ -194,17 +194,19 @@ func (r *nodeResource[M]) Read(ctx context.Context, req resource.ReadRequest, re
 		resp.State.RemoveResource(ctx)
 		return
 	}
-	node, diags := r.desired(&model)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
+	// An imported resource has only its name in state, which may not build a
+	// node; it has no pending changes until a configuration is planned, and
+	// ModifyPlan reports configuration errors.
+	var liveChanges []string
+	if node, diags := r.desired(&model); !diags.HasError() {
+		planned, err := r.engine.plan(ctx, snap, address, node)
+		if err != nil {
+			resp.Diagnostics.AddError("Planning Railway changes", err.Error())
+			return
+		}
+		liveChanges = summaries(planned.changes)
 	}
-	planned, err := r.engine.plan(ctx, snap, address, node)
-	if err != nil {
-		resp.Diagnostics.AddError("Planning Railway changes", err.Error())
-		return
-	}
-	r.setComputed(common, snap, address, summaries(planned.changes))
+	r.setComputed(common, snap, address, liveChanges)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 

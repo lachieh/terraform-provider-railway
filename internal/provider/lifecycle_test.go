@@ -322,3 +322,82 @@ func TestFunctionsGroupsAndDataSources(t *testing.T) {
 		},
 	})
 }
+
+// Existing resources come under management with import blocks, as a
+// railway.ts migration would: the import applies no Railway change when the
+// configuration matches what is live, and the next plan is empty.
+func TestImportBlocksAdoptMatchingResources(t *testing.T) {
+	requireCLI(t)
+	fake, server := newFakeBackboard(t)
+	seedFromConfig(t, fake, server.URL, lifecycleResources+extendedFunction)
+	before := len(fake.changeSets())
+
+	imports := ""
+	for name, address := range map[string]string{
+		"railway_volume.data": "volume.postgres-volume", "railway_database.postgres": "database.postgres",
+		"railway_service.web": "service.web", "railway_bucket.backups": "bucket.backups", "railway_function.hook": "service.hook",
+	} {
+		imports += fmt.Sprintf("import {\n  to = %s\n  id = %q\n}\n", name, fakeEnvironmentID+"/"+address)
+	}
+	config := environmentConfig(server.URL, imports+lifecycleResources+extendedFunction)
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: func(*terraform.State) error {
+					if applied := fake.changeSets()[before:]; len(applied) != 0 {
+						return fmt.Errorf("import applied Railway changes: %v", applied)
+					}
+					return nil
+				},
+			},
+			{Config: config, PlanOnly: true},
+			importStep("railway_database.postgres", "database.postgres"),
+			importStep("railway_function.hook", "service.hook"),
+		},
+	})
+}
+
+// seedFromConfig creates resources in the fake with a separate Terraform
+// state, then forgets that state, leaving them as resources Terraform does
+// not manage.
+func seedFromConfig(t *testing.T, fake *fakeBackboard, endpoint, body string) {
+	t.Helper()
+	removed := ""
+	for _, name := range []string{"railway_volume.data", "railway_database.postgres", "railway_service.web", "railway_bucket.backups", "railway_function.hook"} {
+		removed += fmt.Sprintf("removed {\n  from = %s\n  lifecycle {\n    destroy = false\n  }\n}\n", name)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{Config: environmentConfig(endpoint, body)},
+			{Config: environmentConfig(endpoint, removed)},
+		},
+	})
+	if len(fake.addresses()) != 5 {
+		t.Fatalf("seed left %v", fake.addresses())
+	}
+}
+
+const extendedFunction = `
+resource "railway_function" "hook" {
+  environment_id = local.environment_id
+  name           = "hook"
+  code           = "export default { fetch() { return new Response(\"ok\") } }"
+}
+`
+
+func importStep(resourceName, address string) resource.TestStep {
+	return resource.TestStep{
+		ResourceName:  resourceName,
+		ImportState:   true,
+		ImportStateId: fakeEnvironmentID + "/" + address,
+		ImportStateCheck: func(states []*terraform.InstanceState) error {
+			if len(states) != 1 || states[0].Attributes["address"] != address {
+				return fmt.Errorf("unexpected import state for %s: %v", address, states)
+			}
+			return nil
+		},
+	}
+}
