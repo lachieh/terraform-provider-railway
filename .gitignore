@@ -1,0 +1,10 @@
+/terraform-provider-railway-iac-sdk
+/bin/
+/dist/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
+crash.log
+.env

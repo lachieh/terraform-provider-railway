@@ -1,0 +1,30 @@
+---
+page_title: "Provider: Railway"
+subcategory: ""
+description: |-
+  {{ .Description | plainmarkdown | trimspace | prefixlines "  " }}
+---
+
+# Railway Provider
+
+{{ .Description | trimspace }}
+
+## Example Usage
+
+Declare the provider with the source `tambo-ai/railway-iac-sdk`. Its resources are named `railway_service`, `railway_volume`, and so on.
+
+```terraform
+terraform {
+  required_providers {
+    railway = {
+      source = "tambo-ai/railway-iac-sdk"
+    }
+  }
+}
+```
+
+{{ if .HasExample -}}
+{{ tffile .ExampleFile }}
+{{- end }}
+
+{{ .SchemaMarkdown | trimspace }}
