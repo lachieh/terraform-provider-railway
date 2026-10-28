@@ -58,8 +58,12 @@ jobs:
           version: v2.15.0
 
   test:
-    name: go test -race
+    name: go test -race (${{ matrix.cli }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: [tofu, terraform]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,7 +72,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install OpenTofu
+        if: matrix.cli == 'tofu'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_wrapper: false
+      - name: Install Terraform
+        if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
       - name: Test
+        env:
+          # The lifecycle tests drive this CLI against an in-memory Railway
+          # environment; fail rather than skip when it is missing.
+          RAILWAY_REQUIRE_CLI: "1"
+          RAILWAY_TEST_CLI: ${{ matrix.cli }}
         run: make test-race
 
   docs:

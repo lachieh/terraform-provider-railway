@@ -27,7 +27,11 @@ func requireCLI(t *testing.T) {
 	if os.Getenv("TF_ACC_TERRAFORM_PATH") != "" {
 		return
 	}
-	for _, name := range []string{"tofu", "terraform"} {
+	names := []string{"tofu", "terraform"}
+	if only := os.Getenv("RAILWAY_TEST_CLI"); only != "" {
+		names = []string{only}
+	}
+	for _, name := range names {
 		if path, err := exec.LookPath(name); err == nil && exec.Command(path, "version").Run() == nil {
 			t.Setenv("TF_ACC_TERRAFORM_PATH", path)
 			if name == "tofu" {
@@ -35,6 +39,9 @@ func requireCLI(t *testing.T) {
 			}
 			return
 		}
+	}
+	if os.Getenv("RAILWAY_REQUIRE_CLI") != "" {
+		t.Fatalf("none of %v is installed", names)
 	}
 	t.Skip("neither tofu nor terraform is installed")
 }
