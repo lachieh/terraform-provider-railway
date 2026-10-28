@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"regexp"
+
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -36,8 +38,10 @@ func NewFunctionResource() resource.Resource {
 		},
 	}
 	attributes["image"] = schema.StringAttribute{
-		MarkdownDescription: "Function runtime image to pin instead of `runtime`, such as `ghcr.io/railwayapp/function-bun:1.2.16`.",
-		Optional:            true,
+		MarkdownDescription: "Function runtime image to pin instead of `runtime`, such as `ghcr.io/railwayapp/function-bun:1.2.16`. " +
+			"Railway recognises a function by its image, so it must start with `" + railway.FunctionImagePrefix + "`.",
+		Optional:   true,
+		Validators: []validator.String{stringvalidator.RegexMatches(regexp.MustCompile("^"+regexp.QuoteMeta(railway.FunctionImagePrefix)), "must be a Railway function runtime image")},
 	}
 	return &nodeResource[functionModel]{kind: nodeKind[functionModel]{
 		graphType: "service",

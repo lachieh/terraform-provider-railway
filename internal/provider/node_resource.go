@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	railway "github.com/railwayapp/railway-go-sdk"
 
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
 )
@@ -27,6 +28,7 @@ type commonModel struct {
 	ProjectID     types.String `tfsdk:"project_id"`
 	RailwayID     types.String `tfsdk:"railway_id"`
 	LiveChanges   types.List   `tfsdk:"live_changes"`
+	Address       types.String `tfsdk:"address"`
 }
 
 // nodeKind describes one graph resource type: its schema, and how its model
@@ -91,6 +93,11 @@ func (r *nodeResource[M]) Schema(_ context.Context, _ resource.SchemaRequest, re
 			Computed:            true,
 			PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 		},
+		"address": schema.StringAttribute{
+			MarkdownDescription: "Graph address, such as `" + r.kind.graphType + ".web`. Use it in another resource's `variable_references` so Terraform orders the two.",
+			Computed:            true,
+			PlanModifiers:       []planmodifier.String{addressFromName{graphType: r.kind.graphType}},
+		},
 		"live_changes": schema.ListAttribute{
 			MarkdownDescription: "Changes Railway needs to match this configuration, as `railway config plan` lists them. " +
 				"Empty after an apply; a refresh fills it when the live environment drifts, and the next plan applies them.",
@@ -122,7 +129,7 @@ func (r *nodeResource[M]) Configure(_ context.Context, req resource.ConfigureReq
 }
 
 func (r *nodeResource[M]) address(model *M) string {
-	return iac.ResourceAddress(r.kind.graphType, r.kind.common(model).Name.ValueString())
+	return sdkAddress(r.kind.graphType, r.kind.common(model).Name.ValueString())
 }
 
 func (r *nodeResource[M]) desired(model *M) (map[string]any, diag.Diagnostics) {
@@ -312,6 +319,7 @@ func (r *nodeResource[M]) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 func (r *nodeResource[M]) setComputed(common *commonModel, snap *snapshot, address string, liveChanges []string) {
 	common.ID = types.StringValue(common.EnvironmentID.ValueString() + "/" + address)
+	common.Address = types.StringValue(address)
 	common.ProjectID = types.StringValue(snap.env.ProjectID)
 	common.RailwayID = types.StringValue(railwayID(snap, r.kind.graphType, common.Name.ValueString()))
 	values := make([]attr.Value, 0, len(liveChanges))
@@ -373,4 +381,41 @@ func (convergedList) PlanModifyList(_ context.Context, req planmodifier.ListRequ
 func alreadyExists(address, environmentID string) string {
 	return fmt.Sprintf("%s already exists in environment %s. Import it (ID %s/%s) or add an import block to manage it.",
 		address, environmentID, environmentID, address)
+}
+
+// sdkAddress is the graph address the SDK gives a resource of graphType
+// named name.
+func sdkAddress(graphType, name string) string {
+	switch graphType {
+	case "service":
+		return railway.ServiceNamed(name, nil).Address()
+	case "database":
+		return railway.Postgres(name).Address()
+	case "volume":
+		return railway.Volume(name).Address()
+	case "bucket":
+		return railway.Bucket(name).Address()
+	case "group":
+		return railway.Group(name, nil)[0].(railway.Resource).Address()
+	}
+	return iac.ResourceAddress(graphType, name)
+}
+
+// addressFromName plans address from name, so a reference to it is known
+// before the resource exists.
+type addressFromName struct{ graphType string }
+
+func (addressFromName) Description(context.Context) string {
+	return "Derives the graph address from the resource name."
+}
+
+func (m addressFromName) MarkdownDescription(ctx context.Context) string { return m.Description(ctx) }
+
+func (m addressFromName) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	var name types.String
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("name"), &name)...)
+	if name.IsUnknown() || name.IsNull() {
+		return
+	}
+	resp.PlanValue = types.StringValue(sdkAddress(m.graphType, name.ValueString()))
 }

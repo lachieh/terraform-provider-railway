@@ -185,7 +185,7 @@ func NewServiceResource() resource.Resource {
 							"type": schema.StringAttribute{
 								MarkdownDescription: "`disabled`, `patch` or `minor`.",
 								Required:            true,
-								Validators:          []validator.String{stringvalidator.OneOf("disabled", "patch", "minor")},
+								Validators:          []validator.String{stringvalidator.OneOf(string(railway.AutoUpdatesDisabled), string(railway.AutoUpdatesPatch), string(railway.AutoUpdatesMinor))},
 							},
 							"tag_mode": schema.StringAttribute{
 								MarkdownDescription: "How new tags are matched: `semver` or `sha`.",
@@ -563,7 +563,7 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 			MarkdownDescription: "Variables that reference another resource's output, as `railway.Ref`.",
 			Optional:            true,
 			NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-				"resource": schema.StringAttribute{MarkdownDescription: "Graph address of the resource, such as `database.postgres`.", Required: true},
+				"resource": schema.StringAttribute{MarkdownDescription: "Graph address of the resource, such as `railway_database.postgres.address` (`database.postgres`).", Required: true},
 				"output":   schema.StringAttribute{MarkdownDescription: "Variable of that resource, such as `DATABASE_URL`.", Required: true},
 			}},
 		},
@@ -624,13 +624,13 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 				"html_caching": schema.StringAttribute{
 					MarkdownDescription: "`auto`, `force` or `never`.",
 					Optional:            true,
-					Validators:          []validator.String{stringvalidator.OneOf("auto", "force", "never")},
+					Validators:          []validator.String{stringvalidator.OneOf(string(railway.ServiceCdnHtmlCachingAuto), string(railway.ServiceCdnHtmlCachingForce), string(railway.ServiceCdnHtmlCachingNever))},
 				},
 				"stale_while_revalidate": optionalBool("Honour `stale-while-revalidate`. Railway's default is `true`."),
 				"purge_on_deploy": schema.StringAttribute{
 					MarkdownDescription: "`off`, `html` or `all`.",
 					Optional:            true,
-					Validators:          []validator.String{stringvalidator.OneOf("off", "html", "all")},
+					Validators:          []validator.String{stringvalidator.OneOf(string(railway.ServiceCdnPurgeOnDeployOff), string(railway.ServiceCdnPurgeOnDeployHtml), string(railway.ServiceCdnPurgeOnDeployAll))},
 				},
 			},
 		},

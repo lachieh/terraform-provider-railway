@@ -47,7 +47,7 @@ resource "railway_function" "hook" {
 - `custom_domains` (Attributes Map) Custom domains keyed by host name. The SDK defaults `port` to `8080`. (see [below for nested schema](#nestedatt--custom_domains))
 - `deploy` (Attributes) Deploy settings. (see [below for nested schema](#nestedatt--deploy))
 - `group` (String) Name of the canvas group the service belongs to.
-- `image` (String) Function runtime image to pin instead of `runtime`, such as `ghcr.io/railwayapp/function-bun:1.2.16`.
+- `image` (String) Function runtime image to pin instead of `runtime`, such as `ghcr.io/railwayapp/function-bun:1.2.16`. Railway recognises a function by its image, so it must start with `ghcr.io/railwayapp/function-`.
 - `num_replicas` (Number) Replica count in the service's default region. Conflicts with `replicas`.
 - `parent_service_id` (String) ID of the service this one is a cluster member of.
 - `preserve_variables` (List of String) Variables Railway keeps with their current values, as `railway.Preserve()`. Use for secrets set outside Terraform.
@@ -65,6 +65,7 @@ resource "railway_function" "hook" {
 
 ### Read-Only
 
+- `address` (String) Graph address, such as `service.web`. Use it in another resource's `variable_references` so Terraform orders the two.
 - `id` (String) `<environment_id>/<address>`, for example `c2b9…/service.web`.
 - `live_changes` (List of String) Changes Railway needs to match this configuration, as `railway config plan` lists them. Empty after an apply; a refresh fills it when the live environment drifts, and the next plan applies them.
 - `project_id` (String) ID of the Railway project the environment belongs to.
@@ -190,7 +191,7 @@ Optional:
 Required:
 
 - `output` (String) Variable of that resource, such as `DATABASE_URL`.
-- `resource` (String) Graph address of the resource, such as `database.postgres`.
+- `resource` (String) Graph address of the resource, such as `railway_database.postgres.address` (`database.postgres`).
 
 ## Import
 

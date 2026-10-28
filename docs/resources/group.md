@@ -47,6 +47,7 @@ resource "railway_bucket" "backups" {
 
 ### Read-Only
 
+- `address` (String) Graph address, such as `group.web`. Use it in another resource's `variable_references` so Terraform orders the two.
 - `id` (String) `<environment_id>/<address>`, for example `c2b9…/group.web`.
 - `live_changes` (List of String) Changes Railway needs to match this configuration, as `railway config plan` lists them. Empty after an apply; a refresh fills it when the live environment drifts, and the next plan applies them.
 - `project_id` (String) ID of the Railway project the environment belongs to.

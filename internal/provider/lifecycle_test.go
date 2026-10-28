@@ -103,13 +103,11 @@ resource "railway_service" "web" {
     NODE_ENV = "public-production"
   }
   variable_references = {
-    DATABASE_URL = { resource = "database.postgres", output = "DATABASE_URL" }
+    DATABASE_URL = { resource = railway_database.postgres.address, output = "DATABASE_URL" }
   }
   volume_mounts = {
     "/data" = railway_volume.data.name
   }
-
-  depends_on = [railway_database.postgres]
 }
 
 resource "railway_bucket" "backups" {

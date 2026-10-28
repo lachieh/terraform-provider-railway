@@ -8,6 +8,12 @@ resource "railway_volume" "data" {
   size_mb        = 5000
 }
 
+resource "railway_database" "postgres" {
+  environment_id = var.environment_id
+  name           = "postgres"
+  engine         = "postgres"
+}
+
 resource "railway_service" "web" {
   environment_id = var.environment_id
   name           = "web"
@@ -47,7 +53,7 @@ resource "railway_service" "web" {
   preserve_variables = ["SESSION_SECRET"]
 
   variable_references = {
-    DATABASE_URL = { resource = "database.postgres", output = "DATABASE_URL" }
+    DATABASE_URL = { resource = railway_database.postgres.address, output = "DATABASE_URL" }
   }
 
   volume_mounts = {

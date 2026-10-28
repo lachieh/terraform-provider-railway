@@ -23,6 +23,12 @@ resource "railway_volume" "data" {
   size_mb        = 5000
 }
 
+resource "railway_database" "postgres" {
+  environment_id = var.environment_id
+  name           = "postgres"
+  engine         = "postgres"
+}
+
 resource "railway_service" "web" {
   environment_id = var.environment_id
   name           = "web"
@@ -62,7 +68,7 @@ resource "railway_service" "web" {
   preserve_variables = ["SESSION_SECRET"]
 
   variable_references = {
-    DATABASE_URL = { resource = "database.postgres", output = "DATABASE_URL" }
+    DATABASE_URL = { resource = railway_database.postgres.address, output = "DATABASE_URL" }
   }
 
   volume_mounts = {
@@ -106,6 +112,7 @@ resource "railway_service" "web" {
 
 ### Read-Only
 
+- `address` (String) Graph address, such as `service.web`. Use it in another resource's `variable_references` so Terraform orders the two.
 - `id` (String) `<environment_id>/<address>`, for example `c2b9…/service.web`.
 - `live_changes` (List of String) Changes Railway needs to match this configuration, as `railway config plan` lists them. Empty after an apply; a refresh fills it when the live environment drifts, and the next plan applies them.
 - `project_id` (String) ID of the Railway project the environment belongs to.
@@ -308,7 +315,7 @@ Optional:
 Required:
 
 - `output` (String) Variable of that resource, such as `DATABASE_URL`.
-- `resource` (String) Graph address of the resource, such as `database.postgres`.
+- `resource` (String) Graph address of the resource, such as `railway_database.postgres.address` (`database.postgres`).
 
 ## Import
 

@@ -59,7 +59,7 @@ func variableEnv(literals map[string]string, preserve []string, shared map[strin
 		env[key] = railway.Shared(name)
 	}
 	for key, reference := range references {
-		env[key] = map[string]any{"type": "reference", "resource": reference.Resource, "output": reference.Output}
+		env[key] = railway.Ref(map[string]any{"address": reference.Resource}, reference.Output)
 	}
 	return env
 }
