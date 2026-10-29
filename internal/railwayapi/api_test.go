@@ -11,24 +11,28 @@ import (
 	"testing"
 )
 
+const prEnvironmentJSON = `{"id":"env","name":"pr-7","projectId":"proj","isEphemeral":true,
+	"meta":{"branch":"feat/x","prNumber":7,"prRepo":"acme/app"},
+	"config":{"services":{}},"configEtag":"etag-1","canvasGroupRefs":{"vol-1":"group-1"}}`
+
 func TestFetchEnvironmentFallsBackWithoutIACPartials(t *testing.T) {
-	envJSON := `{"id":"env","name":"pr-7","projectId":"proj","isEphemeral":true,
-		"meta":{"branch":"feat/x","prNumber":7,"prRepo":"acme/app"},"sourceEnvironment":{"name":"production"},
-		"config":{"services":{}},"configEtag":"etag-1","canvasGroupRefs":{"vol-1":"group-1"}}`
 	f := newFake(t, func(_ int, req recordedRequest, w http.ResponseWriter) {
-		if strings.Contains(req.Query, "iacPartials") {
+		switch {
+		case strings.Contains(req.Query, "sourceEnvironment"):
+			writeJSON(w, 200, `{"data":{"environment":{"sourceEnvironment":{"name":"production"}}}}`)
+		case strings.Contains(req.Query, "iacPartials"):
 			writeJSON(w, 400, `{"errors":[{"message":"Cannot query field \"iacPartials\" on type \"Environment\"."}]}`)
-			return
+		default:
+			writeJSON(w, 200, `{"data":{"environment":`+prEnvironmentJSON+`}}`)
 		}
-		writeJSON(w, 200, `{"data":{"environment":`+envJSON+`}}`)
 	})
 	env, err := f.client(t, Credential{Token: testToken}).FetchEnvironment(context.Background(), "env", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	reqs := f.recorded()
-	if len(reqs) != 2 {
-		t.Fatalf("requests = %d, want 2", len(reqs))
+	if len(reqs) != 3 {
+		t.Fatalf("requests = %d, want 3", len(reqs))
 	}
 	want := map[string]any{"environmentId": "env", "decryptVariables": true}
 	if !reflect.DeepEqual(reqs[1].Variables, want) {
@@ -43,8 +47,45 @@ func TestFetchEnvironmentFallsBackWithoutIACPartials(t *testing.T) {
 	}
 }
 
+// A project token scoped to a pull request environment may not read the
+// environment it was forked from; Railway refuses the whole query when asked.
+func TestFetchEnvironmentToleratesHiddenSourceEnvironment(t *testing.T) {
+	f := newFake(t, func(_ int, req recordedRequest, w http.ResponseWriter) {
+		if strings.Contains(req.Query, "sourceEnvironment") {
+			writeJSON(w, 200, `{"data":{"environment":{"sourceEnvironment":null}},"errors":[{"message":"Not Authorized","path":["environment","sourceEnvironment","name"]}]}`)
+			return
+		}
+		writeJSON(w, 200, `{"data":{"environment":`+prEnvironmentJSON+`}}`)
+	})
+	env, err := f.client(t, Credential{ProjectToken: testToken}).FetchEnvironment(context.Background(), "env", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := env.PRContext()
+	if pr == nil || pr.Number != 7 || pr.Base != "" {
+		t.Errorf("PRContext = %+v, want PR 7 with no base", pr)
+	}
+}
+
+func TestFetchEnvironmentReportsOtherSourceEnvironmentErrors(t *testing.T) {
+	f := newFake(t, func(_ int, req recordedRequest, w http.ResponseWriter) {
+		if strings.Contains(req.Query, "sourceEnvironment") {
+			writeJSON(w, 200, `{"errors":[{"message":"Environment not found"}]}`)
+			return
+		}
+		writeJSON(w, 200, `{"data":{"environment":`+prEnvironmentJSON+`}}`)
+	})
+	_, err := f.client(t, Credential{Token: testToken}).FetchEnvironment(context.Background(), "env", false)
+	if err == nil || !strings.Contains(err.Error(), "Environment not found") {
+		t.Errorf("err = %v, want the source environment error", err)
+	}
+}
+
 func TestFetchEnvironmentReadsIACPartials(t *testing.T) {
-	f := newFake(t, func(_ int, _ recordedRequest, w http.ResponseWriter) {
+	f := newFake(t, func(_ int, req recordedRequest, w http.ResponseWriter) {
+		if strings.Contains(req.Query, "sourceEnvironment") {
+			t.Error("asked for the source environment of an environment without a pull request")
+		}
 		writeJSON(w, 200, `{"data":{"environment":{"id":"env","name":"production","projectId":"proj","isEphemeral":false,
 			"config":{},"configEtag":"e","canvasGroupRefs":{},"iacPartials":{"service.api":"ops","bad":3}}}}`)
 	})

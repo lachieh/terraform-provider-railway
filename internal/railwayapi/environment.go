@@ -7,7 +7,14 @@ import (
 	"strings"
 )
 
-const environmentFields = `id name projectId isEphemeral meta { branch prNumber prRepo } sourceEnvironment { name } config(decryptVariables: $decryptVariables) configEtag canvasGroupRefs`
+const environmentFields = `id name projectId isEphemeral meta { branch prNumber prRepo } config(decryptVariables: $decryptVariables) configEtag canvasGroupRefs`
+
+// sourceEnvironmentQuery is separate from the config query because a project
+// token scoped to one environment may not read the environment it was forked
+// from, and Railway fails the whole query when one field is refused.
+const sourceEnvironmentQuery = `query IacSourceEnvironment($environmentId: String!) {
+  environment(id: $environmentId) { sourceEnvironment { name } }
+}`
 
 const environmentQueryWithPartials = `query IacEnvironmentConfig($environmentId: String!, $decryptVariables: Boolean) {
   environment(id: $environmentId) { ` + environmentFields + ` iacPartials }
@@ -57,22 +64,21 @@ func (e *Environment) PRContext() *PRContext {
 }
 
 type environmentWire struct {
-	ID                string           `json:"id"`
-	Name              string           `json:"name"`
-	ProjectID         string           `json:"projectId"`
-	IsEphemeral       bool             `json:"isEphemeral"`
-	Meta              *EnvironmentMeta `json:"meta"`
-	SourceEnvironment *struct {
-		Name string `json:"name"`
-	} `json:"sourceEnvironment"`
-	Config          map[string]any `json:"config"`
-	ConfigEtag      string         `json:"configEtag"`
-	CanvasGroupRefs map[string]any `json:"canvasGroupRefs"`
-	IACPartials     map[string]any `json:"iacPartials"`
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	ProjectID       string           `json:"projectId"`
+	IsEphemeral     bool             `json:"isEphemeral"`
+	Meta            *EnvironmentMeta `json:"meta"`
+	Config          map[string]any   `json:"config"`
+	ConfigEtag      string           `json:"configEtag"`
+	CanvasGroupRefs map[string]any   `json:"canvasGroupRefs"`
+	IACPartials     map[string]any   `json:"iacPartials"`
 }
 
 // FetchEnvironment reads an environment's config, etag and ownership. When
-// the API rejects the iacPartials field, it retries without it.
+// the API rejects the iacPartials field, it retries without it. For a pull
+// request environment it also reads the environment it was forked from, which
+// stays empty when the credential may not see that environment.
 func (c *Client) FetchEnvironment(ctx context.Context, environmentID string, decryptVariables bool) (*Environment, error) {
 	vars := map[string]any{"environmentId": environmentID, "decryptVariables": decryptVariables}
 	var data struct {
@@ -100,9 +106,6 @@ func (c *Client) FetchEnvironment(ctx context.Context, environmentID string, dec
 	if w.Meta != nil {
 		env.Meta = *w.Meta
 	}
-	if w.SourceEnvironment != nil {
-		env.SourceEnvironmentName = w.SourceEnvironment.Name
-	}
 	for key, value := range w.IACPartials {
 		owner, ok := value.(string)
 		if !ok {
@@ -113,5 +116,31 @@ func (c *Client) FetchEnvironment(ctx context.Context, environmentID string, dec
 		}
 		env.IACPartials[key] = owner
 	}
+	if env.IsEphemeral && env.Meta.PRNumber != nil {
+		name, err := c.sourceEnvironmentName(ctx, environmentID)
+		if err != nil {
+			return nil, fmt.Errorf("fetch source environment of %s: %w", environmentID, err)
+		}
+		env.SourceEnvironmentName = name
+	}
 	return env, nil
+}
+
+func (c *Client) sourceEnvironmentName(ctx context.Context, environmentID string) (string, error) {
+	var data struct {
+		Environment struct {
+			SourceEnvironment *struct {
+				Name string `json:"name"`
+			} `json:"sourceEnvironment"`
+		} `json:"environment"`
+	}
+	err := c.Do(ctx, sourceEnvironmentQuery, map[string]any{"environmentId": environmentID}, &data)
+	var gqlErr *GraphQLError
+	if errors.As(err, &gqlErr) && strings.Contains(strings.ToLower(gqlErr.Error()), "not authorized") {
+		return "", nil
+	}
+	if err != nil || data.Environment.SourceEnvironment == nil {
+		return "", err
+	}
+	return data.Environment.SourceEnvironment.Name, nil
 }
