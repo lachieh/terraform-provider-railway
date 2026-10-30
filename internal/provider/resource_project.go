@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -193,8 +194,44 @@ func (r *projectResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.engine.client.ProjectDelete(ctx, model.ID.ValueString()); err != nil {
+	id := model.ID.ValueString()
+	if err := r.engine.client.ProjectDelete(ctx, id); err != nil {
 		resp.Diagnostics.AddError("Deleting Railway project", err.Error())
+		return
+	}
+	err := confirmDeleted(ctx, "project "+id, func() error {
+		_, err := r.engine.client.ProjectDetails(ctx, id)
+		return err
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Deleting Railway project", err.Error())
+	}
+}
+
+// containerDeleteWait bounds how long a project or environment delete waits
+// for Railway, which finishes deleting in the background, to stop listing it.
+var containerDeleteWait = time.Minute
+
+// confirmDeleted polls read until it reports railwayapi.ErrNotFound, so
+// Terraform drops a project or environment from state only once Railway has.
+func confirmDeleted(ctx context.Context, what string, read func() error) error {
+	deadline := time.Now().Add(containerDeleteWait)
+	for {
+		err := read()
+		switch {
+		case errors.Is(err, railwayapi.ErrNotFound):
+			return nil
+		case err != nil:
+			return err
+		case time.Now().After(deadline):
+			return fmt.Errorf("Railway accepted the deletion of %s but still lists it after %s, so Terraform keeps it in state. "+
+				"Run terraform destroy again once Railway has removed it", what, containerDeleteWait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(containerDeleteWait / 20):
+		}
 	}
 }
 

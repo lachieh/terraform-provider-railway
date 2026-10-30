@@ -115,10 +115,19 @@ func (r *environmentResource) Delete(ctx context.Context, req resource.DeleteReq
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := r.engine.client.EnvironmentDelete(ctx, model.ID.ValueString()); err != nil {
+	id := model.ID.ValueString()
+	defer r.engine.invalidate(id)
+	if err := r.engine.client.EnvironmentDelete(ctx, id); err != nil {
+		resp.Diagnostics.AddError("Deleting Railway environment", err.Error())
+		return
+	}
+	err := confirmDeleted(ctx, "environment "+id, func() error {
+		_, err := r.engine.client.EnvironmentDetails(ctx, id)
+		return err
+	})
+	if err != nil {
 		resp.Diagnostics.AddError("Deleting Railway environment", err.Error())
 	}
-	r.engine.invalidate(model.ID.ValueString())
 }
 
 func (r *environmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

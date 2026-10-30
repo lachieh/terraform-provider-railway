@@ -39,6 +39,10 @@ type fakeBackboard struct {
 	projects     map[string]map[string]any
 	environments map[string]map[string]any
 	created      int
+	// deleteLag is how many reads still find a project after its deletion,
+	// as Railway deletes projects in the background.
+	deleteLag int
+	deleting  map[string]int
 	// deployments lists each service's deployments, oldest first. An apply
 	// that changes a service adds one with deployStatus, SUCCESS by default.
 	deployments  map[string][]map[string]any
@@ -248,15 +252,26 @@ func (f *fakeBackboard) handleContainer(operation string, variables map[string]a
 		}
 		return map[string]any{"projectUpdate": project}, nil
 	case "IacProjectDetails":
-		if project, ok := f.projects[id]; ok {
-			return map[string]any{"project": project}, nil
+		project, ok := f.projects[id]
+		if !ok {
+			return nil, notFound
 		}
-		return nil, notFound
+		if reads, deleting := f.deleting[id]; deleting {
+			if reads == 0 {
+				delete(f.projects, id)
+				return nil, notFound
+			}
+			f.deleting[id] = reads - 1
+		}
+		return map[string]any{"project": project}, nil
 	case "IacProjectDelete":
 		if _, ok := f.projects[id]; !ok {
 			return nil, notFound
 		}
-		delete(f.projects, id)
+		if f.deleting == nil {
+			f.deleting = map[string]int{}
+		}
+		f.deleting[id] = f.deleteLag
 		return map[string]any{"projectDelete": true}, nil
 	case "IacEnvironmentCreate":
 		f.created++

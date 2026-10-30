@@ -3,6 +3,7 @@ package provider
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
@@ -42,7 +43,11 @@ resource "railway_environment" "staging" {
 // destroyed.
 func TestProjectAndEnvironmentLifecycle(t *testing.T) {
 	requireCLI(t)
+	wait := containerDeleteWait
+	containerDeleteWait = 100 * time.Millisecond
+	t.Cleanup(func() { containerDeleteWait = wait })
 	fake, server := newFakeBackboard(t)
+	fake.deleteLag = 3
 	var projectID, environmentID string
 	created := projectConfig(server.URL, projectAndEnvironment("app", "The app", "live", "staging"))
 	changed := projectConfig(server.URL, projectAndEnvironment("app-renamed", "", "prod", "stage"))
