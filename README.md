@@ -30,7 +30,7 @@ resource "railway_service" "web" {
 }
 ```
 
-Resources: `railway_service`, `railway_database`, `railway_volume`, `railway_bucket`. Full reference: [`docs/`](docs/index.md).
+Resources: `railway_service`, `railway_database`, `railway_volume`, `railway_bucket`, `railway_function`, `railway_group`, and, outside the graph, `railway_project` and `railway_environment`. Data sources look up environments, projects, services, databases, volumes, buckets and deployments, and `ephemeral.railway_bucket_credentials` opens a bucket's S3 credentials without storing them. Full reference: [`docs/`](docs/index.md).
 
 ## Authentication
 

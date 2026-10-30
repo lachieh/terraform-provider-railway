@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
+	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/railwayapi"
 )
 
@@ -120,6 +122,28 @@ func (a *accRailway) checkEmpty(environmentID string, kept ...string) resource.T
 	}
 }
 
+// variablesSet fails unless the service Terraform manages as resourceName
+// has each variable, with a value.
+func (a *accRailway) variablesSet(environmentID, resourceName string, names ...string) resource.TestCheckFunc {
+	return func(state *terraform.State) error {
+		managed, ok := state.RootModule().Resources[resourceName]
+		if !ok {
+			return fmt.Errorf("%s is not in state", resourceName)
+		}
+		env, err := a.client.FetchEnvironment(context.Background(), environmentID, true)
+		if err != nil {
+			return err
+		}
+		service := iac.Field(env.Config["services"], managed.Primary.Attributes["railway_id"])
+		for _, name := range names {
+			if value, _ := iac.Field(iac.Field(service, "variables"), name).(map[string]any)["value"].(string); value == "" {
+				return fmt.Errorf("%s has no value for %s", resourceName, name)
+			}
+		}
+		return nil
+	}
+}
+
 func accConfig(environmentID, body string) string {
 	return fmt.Sprintf(`
 provider "railway" {}
@@ -166,13 +190,25 @@ resource "railway_service" "web" {
   deploy         = { %s }
   replicas       = { "us-west2" = 1 }
   group          = railway_group.app.name
-  variables      = { WHOAMI_PORT_NUMBER = "8080" }
+  variables      = { WHOAMI_PORT_NUMBER = "8080", PORT = "8080" }
   variable_references = {
     DATABASE_URL = { resource = railway_database.postgres.address, output = "DATABASE_URL" }
   }
   secret_variables_version = %q
   secret_variables         = { API_KEY = "acc-secret-%s" }
   volume_mounts            = { "/data" = railway_volume.data.name }
+  wait_for_deployment      = { timeout = "10m" }
+}
+
+data "railway_deployment" "web" {
+  environment_id = local.environment_id
+  service_id     = railway_service.web.railway_id
+}
+
+data "railway_database" "postgres" {
+  environment_id = local.environment_id
+  name           = railway_database.postgres.name
+  depends_on     = [railway_database.postgres]
 }
 `, watch, deploy, secretVersion, secretVersion)
 }
@@ -209,6 +245,8 @@ func TestAccServiceLifecycle(t *testing.T) {
 				Config: initial,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					converged(all...),
+					resource.TestCheckResourceAttr("data.railway_deployment.web", "status", "SUCCESS"),
+					resource.TestCheckResourceAttrPair("data.railway_database.postgres", "railway_id", "railway_database.postgres", "railway_id"),
 					resource.TestCheckResourceAttrWith("railway_service.web", "railway_id", func(id string) error {
 						serviceID = id
 						if id == "" {
@@ -219,7 +257,10 @@ func TestAccServiceLifecycle(t *testing.T) {
 				),
 			},
 			{Config: initial, PlanOnly: true},
-			{Config: updated, Check: converged(all...)},
+			{Config: updated, Check: resource.ComposeAggregateTestCheckFunc(
+				converged(all...),
+				resource.TestCheckResourceAttr("data.railway_deployment.web", "status", "SUCCESS"),
+			)},
 			// Removing watch_patterns resets it; Railway must agree it is reset.
 			{Config: updated, PlanOnly: true},
 			{
@@ -261,6 +302,27 @@ resource "railway_bucket" "assets" {
   name           = "assets-%x"
   region         = "sjc"
 }
+
+ephemeral "railway_bucket_credentials" "assets" {
+  environment_id = local.environment_id
+  bucket_id      = railway_bucket.assets.railway_id
+}
+
+# No source, so nothing deploys.
+resource "railway_service" "uploader" {
+  environment_id = local.environment_id
+  name           = "uploader"
+  secret_variables = {
+    S3_BUCKET            = ephemeral.railway_bucket_credentials.assets.bucket_name
+    S3_SECRET_ACCESS_KEY = ephemeral.railway_bucket_credentials.assets.secret_access_key
+  }
+}
+
+data "railway_bucket" "assets" {
+  environment_id = local.environment_id
+  name           = railway_bucket.assets.name
+  depends_on     = [railway_bucket.assets]
+}
 `, suffix))
 
 	resource.Test(t, resource.TestCase{
@@ -268,7 +330,11 @@ resource "railway_bucket" "assets" {
 		Steps: []resource.TestStep{
 			{
 				Config: bucket,
-				Check:  resource.TestCheckResourceAttr("railway_bucket.assets", "live_changes.#", "0"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("railway_bucket.assets", "live_changes.#", "0"),
+					resource.TestCheckResourceAttrPair("data.railway_bucket.assets", "railway_id", "railway_bucket.assets", "railway_id"),
+					acc.variablesSet(environmentID, "railway_service.uploader", "S3_BUCKET", "S3_SECRET_ACCESS_KEY"),
+				),
 			},
 			{Config: bucket, PlanOnly: true},
 			{Config: accConfig(environmentID, ""), ExpectError: regexp.MustCompile(`still lists it`)},
@@ -280,6 +346,65 @@ removed {
   }
 }
 `)},
+		},
+	})
+}
+
+// A project and an environment in it are created, renamed and destroyed.
+// The project is deleted directly when the test ends, in case destroy did not.
+func TestAccProjectAndEnvironment(t *testing.T) {
+	acc := requireAcc(t)
+	suffix := make([]byte, 4)
+	_, _ = rand.Read(suffix)
+	name := fmt.Sprintf("%s-project-%x", accProjectPrefix, suffix)
+	var projectID string
+	t.Cleanup(func() {
+		if projectID == "" {
+			return
+		}
+		if err := acc.client.ProjectDelete(context.Background(), projectID); err != nil {
+			t.Errorf("deleting project %s (%s): %v", name, projectID, err)
+		}
+	})
+	config := func(environmentName string) string {
+		return fmt.Sprintf(`
+provider "railway" {}
+
+resource "railway_project" "app" {
+  name        = %q
+  description = "Created by the provider's acceptance tests"
+}
+
+resource "railway_environment" "staging" {
+  project_id = railway_project.app.id
+  name       = %q
+}
+`, name, environmentName)
+	}
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		CheckDestroy: func(*terraform.State) error {
+			if _, err := acc.client.ProjectDetails(context.Background(), projectID); !errors.Is(err, railwayapi.ErrNotFound) {
+				return fmt.Errorf("project %s survived destroy: %v", projectID, err)
+			}
+			return nil
+		},
+		Steps: []resource.TestStep{
+			{
+				Config: config("staging"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("railway_project.app", "default_environment_name", "production"),
+					resource.TestCheckResourceAttrWith("railway_project.app", "id", func(id string) error {
+						projectID = id
+						return nil
+					}),
+				),
+			},
+			{Config: config("staging"), PlanOnly: true},
+			{Config: config("stage"), Check: resource.TestCheckResourceAttr("railway_environment.staging", "name", "stage")},
+			{Config: config("stage"), PlanOnly: true},
+			{ResourceName: "railway_project.app", ImportState: true, ImportStateVerify: true},
 		},
 	})
 }

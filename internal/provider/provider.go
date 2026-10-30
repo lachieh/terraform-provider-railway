@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -26,7 +27,10 @@ const (
 	endpointEnvVar     = "RAILWAY_GRAPHQL_ENDPOINT"
 )
 
-var _ provider.ProviderWithFunctions = &railwayProvider{}
+var (
+	_ provider.ProviderWithFunctions          = &railwayProvider{}
+	_ provider.ProviderWithEphemeralResources = &railwayProvider{}
+)
 
 type railwayProvider struct {
 	version string
@@ -126,6 +130,7 @@ func (p *railwayProvider) Configure(ctx context.Context, req provider.ConfigureR
 	engine := newEngine(client, partial)
 	resp.ResourceData = engine
 	resp.DataSourceData = engine
+	resp.EphemeralResourceData = engine
 }
 
 func (p *railwayProvider) Resources(context.Context) []func() resource.Resource {
@@ -136,13 +141,24 @@ func (p *railwayProvider) Resources(context.Context) []func() resource.Resource 
 		NewBucketResource,
 		NewFunctionResource,
 		NewGroupResource,
+		NewProjectResource,
+		NewEnvironmentResource,
 	}
+}
+
+func (p *railwayProvider) EphemeralResources(context.Context) []func() ephemeral.EphemeralResource {
+	return []func() ephemeral.EphemeralResource{NewBucketCredentialsResource}
 }
 
 func (p *railwayProvider) DataSources(context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewEnvironmentDataSource,
 		NewProjectDataSource,
+		NewServiceDataSource,
+		NewDatabaseDataSource,
+		NewVolumeDataSource,
+		NewBucketDataSource,
+		NewDeploymentDataSource,
 	}
 }
 

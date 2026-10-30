@@ -288,11 +288,12 @@ func (e *engine) checkOwnership(snap *snapshot, address string) error {
 }
 
 // apply converges one address on desired (nil deletes it) and returns the
-// fresh snapshot. It holds the environment's write lock and plans against a
-// fresh read. It sends the configEtag the plan read, as the Railway CLI does,
-// and replans if Railway refuses it as stale. Railway accepts a stale etag,
-// so the replan runs only if Railway starts refusing one.
-func (e *engine) apply(ctx context.Context, environmentID, address string, desired map[string]any) (*snapshot, []iac.Diagnostic, error) {
+// fresh snapshot and whether it applied a ChangeSet. It holds the
+// environment's write lock and plans against a fresh read. It sends the
+// configEtag the plan read, as the Railway CLI does, and replans if Railway
+// refuses it as stale. Railway accepts a stale etag, so the replan runs only
+// if Railway starts refusing one.
+func (e *engine) apply(ctx context.Context, environmentID, address string, desired map[string]any) (*snapshot, []iac.Diagnostic, bool, error) {
 	state := e.environment(environmentID)
 	state.write.Lock()
 	defer state.write.Unlock()
@@ -301,28 +302,28 @@ func (e *engine) apply(ctx context.Context, environmentID, address string, desir
 		e.invalidate(environmentID)
 		snap, err := e.read(ctx, environmentID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if err := e.checkOwnership(snap, address); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		planned, err := e.diff(ctx, snap, address, desired)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if err := errorDiagnostics(planned.diagnostics); err != nil {
-			return nil, planned.diagnostics, err
+			return nil, planned.diagnostics, false, err
 		}
 		if planned.empty() {
-			return snap, planned.diagnostics, nil
+			return snap, planned.diagnostics, false, nil
 		}
 
 		planned, err = e.preview(ctx, environmentID, planned)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if planned.empty() {
-			return snap, planned.diagnostics, nil
+			return snap, planned.diagnostics, false, nil
 		}
 
 		changeSet := e.changeSet(planned, desired != nil)
@@ -334,18 +335,18 @@ func (e *engine) apply(ctx context.Context, environmentID, address string, desir
 				continue
 			}
 			e.invalidate(environmentID)
-			return nil, nil, fmt.Errorf("applying Railway changes for %s: %w", address, err)
+			return nil, nil, false, fmt.Errorf("applying Railway changes for %s: %w", address, err)
 		}
 		e.invalidate(environmentID)
 		if err := result.Err(); err != nil {
-			return nil, nil, fmt.Errorf("applying Railway changes for %s: %w", address, err)
+			return nil, nil, false, fmt.Errorf("applying Railway changes for %s: %w", address, err)
 		}
 		if desired == nil {
 			fresh, err := e.read(ctx, environmentID)
-			return fresh, planned.diagnostics, err
+			return fresh, planned.diagnostics, true, err
 		}
 		fresh, err := e.settle(ctx, environmentID, address, desired)
-		return fresh, planned.diagnostics, err
+		return fresh, planned.diagnostics, true, err
 	}
 }
 
@@ -481,6 +482,57 @@ func (e *engine) settle(ctx context.Context, environmentID, address string, desi
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(settleWait / 10):
+		}
+	}
+}
+
+// deploymentPoll is how often waitForDeployment reads the latest deployment,
+// and deploymentStart how long it waits for Railway to start one. Each read
+// is one request against Railway's hourly rate limit.
+var (
+	deploymentPoll  = 10 * time.Second
+	deploymentStart = 2 * time.Minute
+)
+
+// latestDeploymentID returns the ID of a service's newest deployment, or "".
+func (e *engine) latestDeploymentID(ctx context.Context, environmentID, serviceID string) (string, error) {
+	deployment, err := e.client.LatestDeployment(ctx, environmentID, serviceID)
+	if err != nil || deployment == nil {
+		return "", err
+	}
+	return deployment.ID, nil
+}
+
+// waitForDeployment waits for a deployment newer than previous to finish.
+// It returns a warning when Railway starts none within deploymentStart, and
+// an error when the deployment fails, needs approval, or outlasts timeout.
+func (e *engine) waitForDeployment(ctx context.Context, environmentID, serviceID, previous, address string, timeout time.Duration) (string, error) {
+	started := time.Now()
+	for {
+		deployment, err := e.client.LatestDeployment(ctx, environmentID, serviceID)
+		if err != nil {
+			return "", err
+		}
+		waited := time.Since(started)
+		if deployment != nil && deployment.ID != previous {
+			switch deployment.Status {
+			case "SUCCESS", "SLEEPING", "SKIPPED":
+				return "", nil
+			case "FAILED", "CRASHED", "REMOVED":
+				return "", fmt.Errorf("Railway deployment %s of %s ended %s; its build and deploy logs are in the Railway dashboard", deployment.ID, address, deployment.Status)
+			case "NEEDS_APPROVAL":
+				return "", fmt.Errorf("Railway deployment %s of %s needs approval in the Railway dashboard before it runs", deployment.ID, address)
+			}
+			if waited >= timeout {
+				return "", fmt.Errorf("Railway deployment %s of %s is still %s after %s", deployment.ID, address, deployment.Status, timeout)
+			}
+		} else if waited >= deploymentStart {
+			return fmt.Sprintf("Railway started no deployment of %s within %s of the apply, so Terraform did not wait for one.", address, deploymentStart), nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(deploymentPoll):
 		}
 	}
 }

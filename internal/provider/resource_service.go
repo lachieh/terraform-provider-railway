@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -17,7 +18,29 @@ import (
 type serviceModel struct {
 	commonModel
 	serviceSettings
-	Source *sourceModel `tfsdk:"source"`
+	Source            *sourceModel `tfsdk:"source"`
+	WaitForDeployment *waitModel   `tfsdk:"wait_for_deployment"`
+}
+
+// waitModel asks an apply to wait for the deployment it starts.
+type waitModel struct {
+	Timeout *string `tfsdk:"timeout"`
+}
+
+const defaultDeploymentTimeout = 10 * time.Minute
+
+func (m *serviceModel) deploymentTimeout() (time.Duration, bool) {
+	if m.WaitForDeployment == nil {
+		return 0, false
+	}
+	if m.WaitForDeployment.Timeout == nil {
+		return defaultDeploymentTimeout, true
+	}
+	timeout, err := time.ParseDuration(*m.WaitForDeployment.Timeout)
+	if err != nil {
+		return defaultDeploymentTimeout, true
+	}
+	return timeout, true
 }
 
 // serviceSettings are the service attributes databases share.
@@ -232,6 +255,20 @@ func NewServiceResource() resource.Resource {
 		},
 		Validators: []validator.Object{sourceExactlyOne{}},
 	}
+	attributes["wait_for_deployment"] = schema.SingleNestedAttribute{
+		MarkdownDescription: "Wait, after an apply that changes the service, for the deployment Railway starts, and fail the apply if it fails, crashes or needs approval. " +
+			"Terraform keeps the service in state either way; a failed deployment on create taints it, so the next apply replaces it unless you run `terraform untaint`. " +
+			"Railway's IaC creates the service's deploy trigger from `source.github`, so a push to the branch deploys it without Terraform. " +
+			"Waiting reads the deployment every 10 seconds, and each read counts against Railway's hourly rate limit.",
+		Optional: true,
+		Attributes: map[string]schema.Attribute{
+			"timeout": schema.StringAttribute{
+				MarkdownDescription: "How long to wait for the deployment to finish, as a Go duration such as `15m`. Defaults to `10m`.",
+				Optional:            true,
+				Validators:          []validator.String{durationValidator{}},
+			},
+		},
+	}
 	return &nodeResource[serviceModel]{kind: nodeKind[serviceModel]{
 		graphType: "service",
 		description: "A Railway service in one environment, built with `railway.ServiceNamed`. " +
@@ -239,8 +276,9 @@ func NewServiceResource() resource.Resource {
 			"a source, build or deploy setting left unset is reset to Railway's default, and a variable missing from " +
 			"`variables`, `preserve_variables`, `shared_variables` and `variable_references` is deleted. " +
 			"Domains and TCP proxies the configuration does not list stay attached.",
-		attributes: attributes,
-		common:     func(m *serviceModel) *commonModel { return &m.commonModel },
+		attributes:        attributes,
+		common:            func(m *serviceModel) *commonModel { return &m.commonModel },
+		deploymentTimeout: (*serviceModel).deploymentTimeout,
 		build: func(m *serviceModel) func() any {
 			return func() any {
 				config := m.config()
@@ -706,5 +744,23 @@ func (sourceExactlyOne) ValidateObject(_ context.Context, req validator.ObjectRe
 	}
 	if set != 1 {
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid source", "Set exactly one of github, image, template or empty.")
+	}
+}
+
+// durationValidator accepts a positive Go duration.
+type durationValidator struct{}
+
+func (durationValidator) Description(context.Context) string {
+	return "must be a positive duration, such as 15m"
+}
+
+func (v durationValidator) MarkdownDescription(ctx context.Context) string { return v.Description(ctx) }
+
+func (v durationValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	if duration, err := time.ParseDuration(req.ConfigValue.ValueString()); err != nil || duration <= 0 {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid duration", fmt.Sprintf("%q %s.", req.ConfigValue.ValueString(), v.Description(ctx)))
 	}
 }

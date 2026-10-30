@@ -123,6 +123,7 @@ resource "railway_service" "web" {
 - `variable_references` (Attributes Map) Variables that reference another resource's output, as `railway.Ref`. (see [below for nested schema](#nestedatt--variable_references))
 - `variables` (Map of String) Variables with literal values. Railway expands `${{service.VAR}}` templates in values.
 - `volume_mounts` (Map of String) Volumes keyed by mount path and valued by `railway_volume` name. Reference the volume (`railway_volume.data.name`) so Terraform orders the two. Backup schedules cannot be set through the SDK's volume mounts.
+- `wait_for_deployment` (Attributes) Wait, after an apply that changes the service, for the deployment Railway starts, and fail the apply if it fails, crashes or needs approval. Terraform keeps the service in state either way; a failed deployment on create taints it, so the next apply replaces it unless you run `terraform untaint`. Railway's IaC creates the service's deploy trigger from `source.github`, so a push to the branch deploys it without Terraform. Waiting reads the deployment every 10 seconds, and each read counts against Railway's hourly rate limit. (see [below for nested schema](#nestedatt--wait_for_deployment))
 
 ### Read-Only
 
@@ -331,6 +332,14 @@ Required:
 
 - `output` (String) Variable of that resource, such as `DATABASE_URL`.
 - `resource` (String) Graph address of the resource, such as `railway_database.postgres.address` (`database.postgres`).
+
+
+<a id="nestedatt--wait_for_deployment"></a>
+### Nested Schema for `wait_for_deployment`
+
+Optional:
+
+- `timeout` (String) How long to wait for the deployment to finish, as a Go duration such as `15m`. Defaults to `10m`.
 
 ## Import
 

@@ -11,7 +11,7 @@ description: |-
 
 ## Example Usage
 
-Declare the provider under the local name `railway` with the source `tambo-ai/railway-iac-sdk`, so its resources are `railway_service`, `railway_database`, `railway_volume` and `railway_bucket`.
+Declare the provider under the local name `railway` with the source `tambo-ai/railway-iac-sdk`, so its resources are `railway_service`, `railway_database`, `railway_volume`, `railway_bucket` and so on.
 
 {{ if .HasExample -}}
 {{ tffile .ExampleFile }}
@@ -28,6 +28,9 @@ Each resource is one node of a Railway environment's IaC graph, addressed by typ
 - Railway meters its API per hour for the whole account or workspace, not per token ([limits](https://docs.railway.com/reference/public-api#rate-limits): 1,000 requests an hour on Hobby, 10,000 on Pro), and the Railway CLI spends from the same budget. A plan costs about five requests per environment plus two per resource; an apply costs about fifteen per changed resource. When Railway asks to wait longer than 30 seconds, the provider stops and reports when the limit resets.
 - Railway does not reject a ChangeSet planned against an older configuration, so two applies to the same resource at once leave whichever ran last. Run one apply per environment at a time, as you would `railway config apply`.
 - Railway cannot delete a bucket: it accepts the deletion and keeps the bucket. Destroying a `railway_bucket` therefore fails and keeps it in state; use a `removed` block with `destroy = false` to stop managing it. Buckets belong to the project, so a deleted bucket's name stays taken, and creating a bucket under a name the project already holds is refused.
+- `railway_project` and `railway_environment` sit outside the graph: change sets work inside one environment and cannot create it. They need an account or workspace token, and destroying either deletes everything in it. A new environment starts empty; with `source_environment_id` Railway copies another environment's services into it, which Terraform does not manage until you import them.
+- Railway's IaC creates a service's deploy trigger from `source.github`, so a push to its branch deploys it, gated on `check_suites`. Set `wait_for_deployment` to make an apply wait for the deployment it starts and fail if that deployment fails; `data.railway_deployment` reports a service's latest deployment as of the plan.
+- `ephemeral.railway_bucket_credentials` opens a bucket's S3 credentials without writing them to the plan or state, for a write-only attribute or another provider. A service in the same environment should reference the bucket's variables with `variable_references` instead.
 - A template database such as `engine = "postgres"` creates its own volume, `<name>-volume`, with a suffix if the name is taken, in Railway's default region; Railway ignores `region` when it creates the database. Destroying the database leaves the volume, as `railway config apply` does. To manage the volume, import it as a `railway_volume` after the database exists.
 
 ## Coming from `railway.go`
@@ -51,6 +54,7 @@ Every part of `railway-go-sdk` has a counterpart here. The provider builds each 
 | `Shared` | `shared_variables` |
 | `Ref`, `Service.Env`, `Resource.Env`, `Address` | `variable_references` with another resource's `address` |
 | `NewContext`, `Context` fields | `data.railway_environment` |
+| A resource another file or the dashboard owns | `data.railway_service`, `data.railway_database`, `data.railway_volume`, `data.railway_bucket` |
 | `Context.RandomString` | `provider::railway::random_string(environment, label, bytes)` |
 | `Context.IsEnvironment(name)` | `data.railway_environment.this.name == name` |
 

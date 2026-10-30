@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -47,6 +48,9 @@ type nodeKind[M any] struct {
 	build       func(*M) func() any
 	// remove deletes what a ChangeSet cannot, after the ChangeSet applied.
 	remove func(ctx context.Context, e *engine, model *M) error
+	// deploymentTimeout reports whether an apply waits for the deployment it
+	// starts, and for how long.
+	deploymentTimeout func(*M) (time.Duration, bool)
 }
 
 type nodeResource[M any] struct {
@@ -173,7 +177,7 @@ func (r *nodeResource[M]) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	fresh, warnings, err := r.engine.apply(ctx, environmentID, address, node)
+	fresh, warnings, applied, err := r.engine.apply(ctx, environmentID, address, node)
 	appendWarnings(&resp.Diagnostics, warnings)
 	if err != nil {
 		resp.Diagnostics.AddError("Creating Railway "+r.kind.graphType, err.Error())
@@ -181,6 +185,9 @@ func (r *nodeResource[M]) Create(ctx context.Context, req resource.CreateRequest
 	}
 	r.setComputed(common, fresh, address, nil)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+	if applied {
+		resp.Diagnostics.Append(r.waitForDeployment(ctx, &model, "")...)
+	}
 }
 
 func (r *nodeResource[M]) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -232,7 +239,12 @@ func (r *nodeResource[M]) Update(ctx context.Context, req resource.UpdateRequest
 	common := r.kind.common(&model)
 	environmentID, address := common.EnvironmentID.ValueString(), r.address(&model)
 
-	fresh, warnings, err := r.engine.apply(ctx, environmentID, address, node)
+	previous, diags := r.latestDeployment(ctx, &model)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	fresh, warnings, applied, err := r.engine.apply(ctx, environmentID, address, node)
 	appendWarnings(&resp.Diagnostics, warnings)
 	if err != nil {
 		resp.Diagnostics.AddError("Updating Railway "+r.kind.graphType, err.Error())
@@ -240,6 +252,51 @@ func (r *nodeResource[M]) Update(ctx context.Context, req resource.UpdateRequest
 	}
 	r.setComputed(common, fresh, address, nil)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
+	if applied {
+		resp.Diagnostics.Append(r.waitForDeployment(ctx, &model, previous)...)
+	}
+}
+
+// latestDeployment returns the newest deployment of a resource that waits
+// for its deployments, so the wait after an apply can tell the deployment the
+// apply starts from the one before it.
+func (r *nodeResource[M]) latestDeployment(ctx context.Context, model *M) (string, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	common := r.kind.common(model)
+	if r.kind.deploymentTimeout == nil || common.RailwayID.ValueString() == "" {
+		return "", diags
+	}
+	if _, wait := r.kind.deploymentTimeout(model); !wait {
+		return "", diags
+	}
+	id, err := r.engine.latestDeploymentID(ctx, common.EnvironmentID.ValueString(), common.RailwayID.ValueString())
+	if err != nil {
+		diags.AddError("Reading Railway deployments", err.Error())
+	}
+	return id, diags
+}
+
+// waitForDeployment waits, when the resource asks to, for the deployment an
+// apply started. State is already saved: a failed deployment fails the apply
+// without losing track of the resource.
+func (r *nodeResource[M]) waitForDeployment(ctx context.Context, model *M, previous string) diag.Diagnostics {
+	var diags diag.Diagnostics
+	if r.kind.deploymentTimeout == nil {
+		return diags
+	}
+	timeout, wait := r.kind.deploymentTimeout(model)
+	if !wait {
+		return diags
+	}
+	common := r.kind.common(model)
+	warning, err := r.engine.waitForDeployment(ctx, common.EnvironmentID.ValueString(), common.RailwayID.ValueString(), previous, r.address(model), timeout)
+	if warning != "" {
+		diags.AddWarning("No Railway deployment", warning)
+	}
+	if err != nil {
+		diags.AddError("Railway deployment did not succeed", err.Error())
+	}
+	return diags
 }
 
 func (r *nodeResource[M]) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -251,7 +308,7 @@ func (r *nodeResource[M]) Delete(ctx context.Context, req resource.DeleteRequest
 	common := r.kind.common(&model)
 	environmentID, address := common.EnvironmentID.ValueString(), r.address(&model)
 
-	_, _, err := r.engine.apply(ctx, environmentID, address, nil)
+	_, _, _, err := r.engine.apply(ctx, environmentID, address, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Deleting Railway "+r.kind.graphType, err.Error())
 		return

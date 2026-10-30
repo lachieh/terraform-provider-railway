@@ -33,6 +33,19 @@ type fakeBackboard struct {
 	// keepDeleted accepts resource.delete changes for these resource types
 	// and leaves the resources in place.
 	keepDeleted map[string]bool
+	// projects and environments are the ones railway_project and
+	// railway_environment create, by ID. The environment the graph belongs
+	// to is not among them.
+	projects     map[string]map[string]any
+	environments map[string]map[string]any
+	created      int
+	// deployments lists each service's deployments, oldest first. An apply
+	// that changes a service adds one with deployStatus, SUCCESS by default.
+	deployments  map[string][]map[string]any
+	deployStatus string
+	// deployLag is how many deployment reads miss a new deployment, as
+	// Railway takes a moment to list one after an apply.
+	deployLag, hiddenReads int
 }
 
 const (
@@ -129,6 +142,18 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 	case "IacProject":
 		return map[string]any{"project": map[string]any{"id": fakeProjectID, "name": "test", "workspaceId": "workspace-test"}}, nil
 	case "IacProjectEnvironments":
+		if projectID := variables["projectId"].(string); projectID != fakeProjectID {
+			// The environment Railway creates with a project lists first.
+			edges := []any{}
+			ids := append([]string{projectID + "-env"}, iac.SortedKeys(f.environments)...)
+			for i, id := range ids {
+				environment, ok := f.environments[id]
+				if ok && environment["projectId"] == projectID && environment["deletedAt"] == nil && (i == 0 || id != ids[0]) {
+					edges = append(edges, map[string]any{"node": environment})
+				}
+			}
+			return connection(edges), nil
+		}
 		return connection([]any{
 			map[string]any{"node": map[string]any{"id": fakeEnvironmentID, "name": "staging", "isEphemeral": false}},
 			map[string]any{"node": map[string]any{"id": "env-production", "name": "production", "isEphemeral": false}},
@@ -154,11 +179,33 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 		}
 		f.applied = append(f.applied, changeSet)
 		f.apply(changeSet)
+		f.deploy(changeSet)
 		f.claim(changeSet)
 		return map[string]any{"environmentApplyChangeSet": map[string]any{
 			"id": fmt.Sprintf("apply-%d", f.etag), "status": "applied", "deploymentId": nil, "stagedPatchId": nil,
 			"diagnostics": []any{}, "changes": []any{},
 		}}, nil
+	case "IacProjectCreate", "IacProjectUpdate", "IacProjectDetails", "IacProjectDelete",
+		"IacEnvironmentCreate", "IacEnvironmentRename", "IacEnvironmentDetails", "IacEnvironmentDelete":
+		return f.handleContainer(operation, variables)
+	case "IacLatestDeployment":
+		input := variables["input"].(map[string]any)
+		list := f.deployments[input["serviceId"].(string)]
+		if f.hiddenReads > 0 && len(list) > 0 {
+			f.hiddenReads--
+			list = list[:len(list)-1]
+		}
+		edges := []any{}
+		if len(list) > 0 {
+			edges = append(edges, map[string]any{"node": list[len(list)-1]})
+		}
+		return map[string]any{"deployments": map[string]any{"edges": edges}}, nil
+	case "IacBucketCredentials":
+		bucket := variables["bucketId"].(string)
+		return map[string]any{"bucketS3Credentials": []any{map[string]any{
+			"accessKeyId": "key-" + bucket, "secretAccessKey": "secret-" + bucket, "endpoint": "https://storage.railway.test",
+			"bucketName": bucket + "-x1y2", "region": "auto", "urlStyle": "virtual-host", "createdAt": "2026-10-30T00:00:00Z",
+		}}}, nil
 	case "IacVolumeDelete":
 		f.deleted = append(f.deleted, variables["volumeId"].(string))
 		f.remove("volume." + variables["volumeId"].(string))
@@ -166,6 +213,133 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 	}
 	f.t.Errorf("fake backboard: unexpected operation %s", operation)
 	return nil, map[string]any{"message": "unexpected operation " + operation}
+}
+
+// handleContainer serves project and environment CRUD from the fake's maps.
+func (f *fakeBackboard) handleContainer(operation string, variables map[string]any) (any, map[string]any) {
+	if f.projects == nil {
+		f.projects, f.environments = map[string]map[string]any{}, map[string]map[string]any{}
+	}
+	input, _ := variables["input"].(map[string]any)
+	id, _ := variables["id"].(string)
+	notFound := map[string]any{"message": "Project not found"}
+	switch operation {
+	case "IacProjectCreate":
+		f.created++
+		project := map[string]any{"id": fmt.Sprintf("project-%d", f.created), "name": input["name"], "description": "",
+			"workspaceId": "workspace-test", "isPublic": false, "prDeploys": false, "deletedAt": nil}
+		for _, key := range []string{"description", "isPublic", "prDeploys", "workspaceId"} {
+			if value, ok := input[key]; ok {
+				project[key] = value
+			}
+		}
+		f.projects[project["id"].(string)] = project
+		name := "production"
+		if value, ok := input["defaultEnvironmentName"].(string); ok {
+			name = value
+		}
+		f.environments[project["id"].(string)+"-env"] = map[string]any{"id": project["id"].(string) + "-env", "name": name,
+			"projectId": project["id"], "isEphemeral": false, "deletedAt": nil}
+		return map[string]any{"projectCreate": project}, nil
+	case "IacProjectUpdate":
+		project := f.projects[id]
+		for key, value := range input {
+			project[key] = value
+		}
+		return map[string]any{"projectUpdate": project}, nil
+	case "IacProjectDetails":
+		if project, ok := f.projects[id]; ok {
+			return map[string]any{"project": project}, nil
+		}
+		return nil, notFound
+	case "IacProjectDelete":
+		if _, ok := f.projects[id]; !ok {
+			return nil, notFound
+		}
+		delete(f.projects, id)
+		return map[string]any{"projectDelete": true}, nil
+	case "IacEnvironmentCreate":
+		f.created++
+		environment := map[string]any{"id": fmt.Sprintf("env-%d", f.created), "name": input["name"],
+			"projectId": input["projectId"], "isEphemeral": false, "deletedAt": nil}
+		if input["skipInitialDeploys"] != true {
+			f.t.Errorf("environmentCreate without skipInitialDeploys: %v", input)
+		}
+		if source, ok := input["sourceEnvironmentId"]; ok {
+			environment["source"] = source
+		}
+		f.environments[environment["id"].(string)] = environment
+		return map[string]any{"environmentCreate": environment}, nil
+	case "IacEnvironmentRename":
+		f.environments[id]["name"] = input["name"]
+		return map[string]any{"environmentRename": f.environments[id]}, nil
+	case "IacEnvironmentDetails":
+		if environment, ok := f.environments[id]; ok {
+			return map[string]any{"environment": environment}, nil
+		}
+		return nil, map[string]any{"message": "Not Authorized"}
+	case "IacEnvironmentDelete":
+		if environment, ok := f.environments[id]; ok {
+			environment["deletedAt"] = "2026-10-30T00:00:00Z"
+		}
+		return map[string]any{"environmentDelete": true}, nil
+	}
+	return nil, map[string]any{"message": "unexpected operation " + operation}
+}
+
+// deploy records a deployment of each service a ChangeSet changes.
+func (f *fakeBackboard) deploy(changeSet iac.ChangeSet) {
+	if f.deployments == nil {
+		f.deployments = map[string][]map[string]any{}
+	}
+	status := f.deployStatus
+	switch status {
+	case noDeployment:
+		return
+	case "":
+		status = "SUCCESS"
+	}
+	deployed := map[string]bool{}
+	for _, change := range changeSet.Changes {
+		kind, name, _ := strings.Cut(iac.FieldStr(change, "address"), ".")
+		if kind != "service" || deployed[name] || iac.FieldStr(change, "kind") == "resource.delete" {
+			continue
+		}
+		deployed[name] = true
+		f.hiddenReads = f.deployLag
+		f.deployments[name] = append(f.deployments[name], map[string]any{
+			"id": fmt.Sprintf("deploy-%s-%d", name, len(f.deployments[name])+1), "status": status,
+			"url": "", "staticUrl": name + ".up.railway.test", "createdAt": "2026-10-30T00:00:00Z", "updatedAt": "2026-10-30T00:00:00Z",
+		})
+	}
+}
+
+// noDeployment as a deploy status makes applies start no deployment.
+const noDeployment = "none"
+
+// setDeployStatus sets the status of the deployments later applies start.
+func (f *fakeBackboard) setDeployStatus(status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deployStatus = status
+}
+
+// deploymentCount returns how many deployments a service has had.
+func (f *fakeBackboard) deploymentCount(service string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.deployments[service])
+}
+
+// container returns a project or environment railway_project or
+// railway_environment created, or nil.
+func (f *fakeBackboard) container(id string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if project, ok := f.projects[id]; ok {
+		return project
+	}
+	return f.environments[id]
 }
 
 // preview drops variable sets that match the stored, unmasked value, as
