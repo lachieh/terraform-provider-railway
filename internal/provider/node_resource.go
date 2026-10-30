@@ -168,6 +168,10 @@ func (r *nodeResource[M]) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("Railway resource already exists", alreadyExists(address, environmentID))
 		return
 	}
+	if detail := projectBucketTaken(snap, r.kind.graphType, common.Name.ValueString()); detail != "" {
+		resp.Diagnostics.AddError("Railway bucket name taken", detail)
+		return
+	}
 
 	fresh, warnings, err := r.engine.apply(ctx, environmentID, address, node)
 	appendWarnings(&resp.Diagnostics, warnings)
@@ -258,7 +262,7 @@ func (r *nodeResource[M]) Delete(ctx context.Context, req resource.DeleteRequest
 			return
 		}
 	}
-	if err := r.engine.awaitRemoval(ctx, environmentID, address); err != nil {
+	if _, err := r.engine.settle(ctx, environmentID, address, nil); err != nil {
 		resp.Diagnostics.AddError("Deleting Railway "+r.kind.graphType, err.Error())
 	}
 }
@@ -310,6 +314,10 @@ func (r *nodeResource[M]) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 	if req.State.Raw.IsNull() && snap.graph.FindResource(address) != nil {
 		resp.Diagnostics.AddError("Railway resource already exists", alreadyExists(address, environmentID))
+		return
+	}
+	if detail := projectBucketTaken(snap, r.kind.graphType, common.Name.ValueString()); req.State.Raw.IsNull() && detail != "" {
+		resp.Diagnostics.AddError("Railway bucket name taken", detail)
 		return
 	}
 	if err := r.engine.checkOwnership(snap, address); err != nil {
@@ -444,6 +452,24 @@ func (convergedList) PlanModifyList(_ context.Context, req planmodifier.ListRequ
 		return
 	}
 	resp.PlanValue = types.ListValueMust(types.StringType, []attr.Value{})
+}
+
+// projectBucketTaken explains why a bucket named name cannot be created in
+// this environment, or returns "". Buckets belong to the project and Railway
+// cannot delete one; a ChangeSet that creates a bucket under a name the
+// project already holds updates that bucket and never adds it to the
+// environment.
+func projectBucketTaken(snap *snapshot, graphType, name string) string {
+	if graphType != "bucket" {
+		return ""
+	}
+	for _, taken := range snap.names.BucketNamesByID {
+		if taken == name {
+			return fmt.Sprintf("The project already has a bucket named %q, and Railway would not add it to this environment. "+
+				"Choose another name; Railway cannot delete buckets, so the name stays taken.", name)
+		}
+	}
+	return ""
 }
 
 func alreadyExists(address, environmentID string) string {

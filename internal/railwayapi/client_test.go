@@ -219,9 +219,39 @@ func TestRetryGivesUpWithoutLeakingToken(t *testing.T) {
 	}
 }
 
+// Railway may have run a mutation that answered 5xx; retrying could apply
+// it twice.
+func TestMutationIsNotRetriedAfterServerError(t *testing.T) {
+	f := newFake(t, func(_ int, _ recordedRequest, w http.ResponseWriter) {
+		writeJSON(w, 502, `bad gateway`)
+	})
+	err := f.client(t, Credential{Token: testToken}).Do(context.Background(), "mutation { apply }", nil, nil)
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != 502 {
+		t.Fatalf("err = %v, want *HTTPError 502", err)
+	}
+	if got := len(f.recorded()); got != 1 {
+		t.Errorf("requests = %d, want 1", got)
+	}
+}
+
+func TestLongRateLimitFailsAtOnce(t *testing.T) {
+	f := newFake(t, func(_ int, _ recordedRequest, w http.ResponseWriter) {
+		w.Header().Set("Retry-After", "2549")
+		writeJSON(w, 429, `{"errors":[{"message":"Rate limit exceeded, please try again in 2548.988 seconds."}]}`)
+	})
+	err := f.client(t, Credential{Token: testToken}).Do(context.Background(), "query { value }", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "resets in 42m0s") {
+		t.Fatalf("err = %v, want the reset time", err)
+	}
+	if got := len(f.recorded()); got != 1 {
+		t.Errorf("requests = %d, want 1", got)
+	}
+}
+
 func TestRetryStopsWhenContextEnds(t *testing.T) {
 	f := newFake(t, func(_ int, _ recordedRequest, w http.ResponseWriter) {
-		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Retry-After", "20")
 		writeJSON(w, 429, `slow down`)
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)

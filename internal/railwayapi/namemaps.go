@@ -88,7 +88,7 @@ func (c *Client) FetchNameMaps(ctx context.Context, projectID string, env *Envir
 		if v.Name != "" {
 			names.VolumeNamesByID[v.ID] = v.Name
 		}
-		if env != nil {
+		if env != nil && env.hasVolume(v.ID) {
 			if group, ok := env.CanvasGroupRefs[v.ID]; ok {
 				names.VolumeGroupIDsByID[v.ID] = group
 			}
@@ -131,4 +131,13 @@ func (c *Client) GitHubDefaultBranches(ctx context.Context) (map[string]string, 
 		branches[strings.ToLower(repo.FullName)] = repo.DefaultBranch
 	}
 	return branches, nil
+}
+
+// hasVolume reports whether the environment's config holds volume id. A
+// deleted volume stays in the project's volumes and canvasGroupRefs while
+// Railway finishes deleting it, and must not keep its group listed.
+func (e *Environment) hasVolume(id string) bool {
+	volumes, _ := e.Config["volumes"].(map[string]any)
+	volume, ok := volumes[id].(map[string]any)
+	return ok && volume["isDeleted"] != true
 }

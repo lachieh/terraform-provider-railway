@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -126,8 +127,11 @@ jobs:
       - name: Check formatting and validate
         run: make examples-check
 
+  # Acceptance runs spend the Railway token's hourly request quota, so they
+  # run for main and on demand, not for every pull request.
   acceptance:
     name: acceptance (${{ matrix.cli }})
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: [fmt, vet, lint, test]
     timeout-minutes: 120

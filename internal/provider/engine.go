@@ -21,9 +21,8 @@ const (
 )
 
 // engine serves every resource of one provider instance. Terraform applies
-// resources concurrently, but a Railway environment takes one ChangeSet at a
-// time against its current configEtag, so writes to an environment hold its
-// lock from the fresh read through the apply.
+// resources concurrently, and each apply plans against a fresh read, so
+// writes to an environment hold its lock from that read through the apply.
 type engine struct {
 	client  *railwayapi.Client
 	partial string
@@ -137,7 +136,7 @@ func (e *engine) diff(ctx context.Context, snap *snapshot, address string, desir
 		}
 	}
 	if desired != nil {
-		resources = append(resources, desired)
+		resources = append(resources, asRailwayStores(desired, snap.graph.FindResource(address)))
 	}
 	desiredGraph := iac.ProjectDefinitionToGraph(map[string]any{
 		"name":      snap.graph.Project.Name,
@@ -170,6 +169,107 @@ func (e *engine) diff(ctx context.Context, snap *snapshot, address string, desir
 	return out, nil
 }
 
+// asRailwayStores rewrites desired into the form Railway stores, so the diff
+// sends changes Railway applies and does not report ones it already holds:
+//
+//   - A volume keeps the region Railway picked when the configuration has
+//     none, and the 100% usage alert Railway always adds.
+//   - Railway ignores null for a build setting, so clearing one sends an
+//     empty value: [] for a list, "" for a string, RAILPACK for the builder.
+//     A stored "" counts as unset.
+//   - Railway stores a deploy setting set to its default as no value, so
+//     ON_FAILURE and sleepApplication false match a setting Railway does
+//     not hold.
+func asRailwayStores(desired, current map[string]any) map[string]any {
+	if current == nil {
+		return desired
+	}
+	out := iac.Clone(desired).(map[string]any)
+	switch iac.ResourceType(desired) {
+	case "volume":
+		keepAssignedVolumeSettings(section(out, "config"), asObject(current["config"]))
+	case "service", "database":
+		clearBuildSettings(out, asObject(current["build"]))
+		matchDeployDefaults(out, asObject(current["deploy"]))
+	}
+	return out
+}
+
+func keepAssignedVolumeSettings(config, live map[string]any) {
+	if _, set := config["region"]; !set && live["region"] != nil {
+		config["region"] = live["region"]
+	}
+	full, kept := iac.Field(iac.Field(live, "alerts"), "usage").(map[string]any)
+	if !kept || full["100"] == nil {
+		return
+	}
+	usage := section(section(config, "alerts"), "usage")
+	if _, set := usage["100"]; !set {
+		usage["100"] = iac.Clone(full["100"])
+	}
+}
+
+// buildDefaults are the build settings Railway fills in itself; the engine
+// already treats their defaults as unchanged.
+var buildDefaults = map[string]bool{"buildEnvironment": true}
+
+func clearBuildSettings(node, live map[string]any) {
+	if len(live) == 0 {
+		return
+	}
+	build := asObject(node["build"])
+	for key, value := range live {
+		if _, set := build[key]; set || buildDefaults[key] {
+			continue
+		}
+		var empty any
+		switch value.(type) {
+		case []any:
+			empty = []any{}
+		case string:
+			empty = ""
+			if key == "builder" {
+				empty = "RAILPACK"
+			}
+		default:
+			continue
+		}
+		if build == nil {
+			build = map[string]any{}
+			node["build"] = build
+		}
+		build[key] = empty
+	}
+}
+
+// deployDefaults are deploy settings Railway stores as no value when they
+// are set to these values.
+var deployDefaults = map[string]any{"restartPolicyType": "ON_FAILURE", "sleepApplication": false}
+
+func matchDeployDefaults(node, live map[string]any) {
+	deploy := asObject(node["deploy"])
+	for key, value := range deployDefaults {
+		if _, held := live[key]; !held && deploy[key] == value {
+			delete(deploy, key)
+		}
+	}
+}
+
+func asObject(value any) map[string]any {
+	object, _ := value.(map[string]any)
+	return object
+}
+
+// section returns parent[key] as an object, creating it when absent.
+func section(parent map[string]any, key string) map[string]any {
+	child, ok := parent[key].(map[string]any)
+	if !ok {
+		child = map[string]any{}
+		parent[key] = child
+	}
+	return child
+}
+
 func belongsTo(path, address string) bool {
 	prefix := "resources." + address
 	return path == prefix || strings.HasPrefix(path, prefix+".")
@@ -188,8 +288,10 @@ func (e *engine) checkOwnership(snap *snapshot, address string) error {
 }
 
 // apply converges one address on desired (nil deletes it) and returns the
-// fresh snapshot. It holds the environment's write lock, plans against a
-// fresh read, and replans when another writer moved the configEtag.
+// fresh snapshot. It holds the environment's write lock and plans against a
+// fresh read. It sends the configEtag the plan read, as the Railway CLI does,
+// and replans if Railway refuses it as stale. Railway accepts a stale etag,
+// so the replan runs only if Railway starts refusing one.
 func (e *engine) apply(ctx context.Context, environmentID, address string, desired map[string]any) (*snapshot, []iac.Diagnostic, error) {
 	state := e.environment(environmentID)
 	state.write.Lock()
@@ -238,7 +340,11 @@ func (e *engine) apply(ctx context.Context, environmentID, address string, desir
 		if err := result.Err(); err != nil {
 			return nil, nil, fmt.Errorf("applying Railway changes for %s: %w", address, err)
 		}
-		fresh, err := e.read(ctx, environmentID)
+		if desired == nil {
+			fresh, err := e.read(ctx, environmentID)
+			return fresh, planned.diagnostics, err
+		}
+		fresh, err := e.settle(ctx, environmentID, address, desired)
 		return fresh, planned.diagnostics, err
 	}
 }
@@ -340,32 +446,41 @@ func summaries(changes []map[string]any) []string {
 	return out
 }
 
-// removalWait bounds how long Delete waits for Railway to stop listing a
-// resource it accepted the deletion of.
-var removalWait = 30 * time.Second
+// settleWait bounds how long an apply waits for Railway to list, or stop
+// listing, what it applied.
+var settleWait = 30 * time.Second
 
-// awaitRemoval returns once the environment no longer lists address, and an
-// error when it still does after removalWait. Railway can accept a deletion
-// and leave the resource in place, and Terraform must then keep it in state.
-func (e *engine) awaitRemoval(ctx context.Context, environmentID, address string) error {
-	deadline := time.Now().Add(removalWait)
+// settle re-reads the environment after an apply until Railway lists address,
+// or stops listing it when desired is nil. Railway lists a new resource
+// seconds after applying it. A resource that never appears, or a deleted one
+// that stays, is an error, so Terraform does not record a state Railway does
+// not have. Each read costs several API requests against Railway's hourly
+// rate limit, so settle polls sparingly.
+func (e *engine) settle(ctx context.Context, environmentID, address string, desired map[string]any) (*snapshot, error) {
+	deadline := time.Now().Add(settleWait)
 	for {
 		e.invalidate(environmentID)
 		snap, err := e.read(ctx, environmentID)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if snap.graph.FindResource(address) == nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("Railway accepted the deletion of %s but still lists it after %s, so Terraform keeps it in state. "+
-				"Delete it in Railway, then run terraform apply again", address, removalWait)
+		listed := snap.graph.FindResource(address) != nil
+		switch {
+		case listed == (desired != nil):
+			return snap, nil
+		case desired != nil && strings.HasPrefix(address, "group."):
+			// A group is listed only while something belongs to it.
+			return snap, nil
+		case time.Now().After(deadline) && listed:
+			return nil, fmt.Errorf("Railway accepted the deletion of %s but still lists it after %s, so Terraform keeps it in state. "+
+				"Delete it in Railway, then run terraform apply again", address, settleWait)
+		case time.Now().After(deadline):
+			return nil, fmt.Errorf("Railway applied %s but does not list it after %s", address, settleWait)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(removalWait / 10):
+			return nil, ctx.Err()
+		case <-time.After(settleWait / 10):
 		}
 	}
 }

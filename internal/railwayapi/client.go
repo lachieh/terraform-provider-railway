@@ -162,8 +162,10 @@ type response struct {
 }
 
 // Do posts query with variables and decodes the response's data into out,
-// which may be nil. Responses with HTTP 429 or 5xx are retried with bounded
-// exponential backoff that honours Retry-After. A non-empty errors array is
+// which may be nil. Responses with HTTP 429, and 5xx responses to queries,
+// are retried with bounded exponential backoff that honours Retry-After; a
+// 429 that asks for a longer wait than maxBackoff fails at once. A mutation
+// that got a 5xx may have run, so it is not retried. A non-empty errors array is
 // returned as *GraphQLError.
 func (c *Client) Do(ctx context.Context, query string, variables map[string]any, out any) error {
 	if variables == nil {
@@ -174,14 +176,21 @@ func (c *Client) Do(ctx context.Context, query string, variables map[string]any,
 		return fmt.Errorf("encode GraphQL request: %w", err)
 	}
 
+	mutation := strings.HasPrefix(strings.TrimSpace(query), "mutation")
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		status, header, payload, err := c.post(ctx, body)
 		if err != nil {
 			return err
 		}
+		if status >= 500 && mutation {
+			return httpOrGraphQLError(status, payload, c.secret)
+		}
 		if status == http.StatusTooManyRequests || status >= 500 {
 			lastErr = httpOrGraphQLError(status, payload, c.secret)
+			if wait, ok := retryAfter(header.Get("Retry-After")); ok && status == http.StatusTooManyRequests && wait > maxBackoff {
+				return fmt.Errorf("railway rate limit reached; it resets in %s: %w", wait.Round(time.Minute), lastErr)
+			}
 			if attempt == maxAttempts-1 {
 				break
 			}

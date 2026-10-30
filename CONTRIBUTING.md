@@ -57,7 +57,7 @@ export TF_ACC_TERRAFORM_PATH="$(command -v tofu)"   # or terraform
 make testacc     # TF_ACC=1, 120 minute timeout
 ```
 
-The values live in the 1Password Engineering item "terraform-provider-railway-iac-sdk acceptance". CI runs the tests against OpenTofu and Terraform when the `RAILWAY_ACC_TOKEN` repository secret and the `RAILWAY_ACC_PROJECT_ID` repository variable exist. Pull requests from forks skip them.
+The values live in the 1Password Engineering item "terraform-provider-railway-iac-sdk acceptance". CI runs the tests against OpenTofu and Terraform on pushes to `main` and from the Test workflow's manual run, when the `RAILWAY_ACC_TOKEN` repository secret and the `RAILWAY_ACC_PROJECT_ID` repository variable exist. Pull requests skip them: each run spends the token's hourly Railway API quota.
 
 ## Checks
 

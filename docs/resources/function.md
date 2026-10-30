@@ -131,7 +131,7 @@ Optional:
 - `cron_schedule` (String) Cron schedule for a service that runs on a schedule.
 - `draining_seconds` (Number) Seconds an old deploy keeps running after it stops receiving traffic.
 - `healthcheck_path` (String) Path Railway polls before routing traffic to a deploy.
-- `healthcheck_timeout` (Number) Seconds a deploy has to pass its health check.
+- `healthcheck_timeout` (Number) Seconds a deploy has to pass its health check. Needs `healthcheck_path`: Railway drops a timeout without a path.
 - `ipv6_egress_enabled` (Boolean) Allow outbound IPv6.
 - `limit_override` (Attributes) Per-container resource limits. (see [below for nested schema](#nestedatt--deploy--limit_override))
 - `overlap_seconds` (Number) Seconds the old and new deploys both receive traffic.

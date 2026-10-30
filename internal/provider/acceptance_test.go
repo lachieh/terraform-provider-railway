@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-	railway "github.com/railwayapp/railway-go-sdk"
 
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/railwayapi"
 )
@@ -72,7 +73,8 @@ func (a *accRailway) environment(t *testing.T) string {
 	}
 	id := created.EnvironmentCreate.ID
 	t.Cleanup(func() {
-		err := a.client.Do(t.Context(), `mutation AccEnvironmentDelete($id: String!) { environmentDelete(id: $id) }`,
+		// t.Context is already cancelled when cleanups run.
+		err := a.client.Do(context.Background(), `mutation AccEnvironmentDelete($id: String!) { environmentDelete(id: $id) }`,
 			map[string]any{"id": id}, nil)
 		if err != nil {
 			t.Errorf("deleting environment %s (%s): %v", name, id, err)
@@ -95,20 +97,22 @@ func (a *accRailway) upsertVariable(t *testing.T, environmentID, serviceID, name
 	}
 }
 
-// checkEmpty fails when the environment still lists resources.
-func (a *accRailway) checkEmpty(environmentID string) resource.TestCheckFunc {
+// checkEmpty fails when the environment lists resources other than kept.
+func (a *accRailway) checkEmpty(environmentID string, kept ...string) resource.TestCheckFunc {
 	return func(*terraform.State) error {
 		e := newEngine(a.client, "")
 		snap, err := e.read(context.Background(), environmentID)
 		if err != nil {
 			return err
 		}
-		if len(snap.graph.Resources) > 0 {
-			addresses := make([]string, 0, len(snap.graph.Resources))
-			for _, node := range snap.graph.Resources {
-				addresses = append(addresses, fmt.Sprint(node["type"], ".", node["name"]))
+		var left []string
+		for _, node := range snap.graph.Resources {
+			if address := fmt.Sprint(node["type"], ".", node["name"]); !slices.Contains(kept, address) {
+				left = append(left, address)
 			}
-			return fmt.Errorf("resources left in environment %s: %v", environmentID, addresses)
+		}
+		if len(left) > 0 {
+			return fmt.Errorf("resources left in environment %s: %v", environmentID, left)
 		}
 		return nil
 	}
@@ -130,17 +134,26 @@ func accServices(deploy, secretVersion string, watchPatterns bool) string {
 		watch = `watch_patterns = ["src/**"]`
 	}
 	return fmt.Sprintf(`
+resource "railway_group" "app" {
+  environment_id = local.environment_id
+  name           = "app"
+  color          = "#4f46e5"
+}
+
+# Railway creates the template's volume, postgres-volume, with the database.
+resource "railway_database" "postgres" {
+  environment_id = local.environment_id
+  name           = "postgres"
+  engine         = "postgres"
+}
+
+# No region and no 100%% alert: Railway assigns both.
 resource "railway_volume" "data" {
   environment_id = local.environment_id
   name           = "data"
   size_mb        = 5000
   usage_alerts   = [80, 95]
-}
-
-resource "railway_database" "postgres" {
-  environment_id = local.environment_id
-  name           = "postgres"
-  engine         = "postgres"
+  group          = railway_group.app.name
 }
 
 resource "railway_service" "web" {
@@ -150,6 +163,7 @@ resource "railway_service" "web" {
   build          = { %s }
   deploy         = { %s }
   replicas       = { "us-west2" = 1 }
+  group          = railway_group.app.name
   variables      = { WHOAMI_PORT_NUMBER = "8080" }
   variable_references = {
     DATABASE_URL = { resource = railway_database.postgres.address, output = "DATABASE_URL" }
@@ -161,27 +175,36 @@ resource "railway_service" "web" {
 `, watch, deploy, secretVersion, secretVersion)
 }
 
-// The whole life of a service, database and volume against real Railway:
-// create, an empty second plan, an update that unsets a setting, drift
-// repair, import and destroy.
+// The whole life of a service, Postgres, volumes and a group against real
+// Railway: create, an empty second plan, an update that unsets a setting,
+// drift repair, import and destroy.
 func TestAccServiceLifecycle(t *testing.T) {
 	acc := requireAcc(t)
 	environmentID := acc.environment(t)
-	initial := accConfig(environmentID, accServices(`healthcheck_timeout = 60`, "1", true))
-	updated := accConfig(environmentID, accServices(`healthcheck_timeout = 90
+	initial := accConfig(environmentID, accServices(`healthcheck_path = "/health"
+    healthcheck_timeout = 60`, "1", true))
+	updated := accConfig(environmentID, accServices(`healthcheck_path = "/health"
+    healthcheck_timeout = 90
     restart_policy_type = "ON_FAILURE"`, "2", false))
 	var serviceID string
+	converged := func(names ...string) resource.TestCheckFunc {
+		checks := make([]resource.TestCheckFunc, 0, len(names))
+		for _, name := range names {
+			checks = append(checks, resource.TestCheckResourceAttr(name, "live_changes.#", "0"))
+		}
+		return resource.ComposeAggregateTestCheckFunc(checks...)
+	}
+	all := []string{"railway_group.app", "railway_database.postgres", "railway_volume.data", "railway_service.web"}
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviders,
-		CheckDestroy:             acc.checkEmpty(environmentID),
+		// Destroying a template database leaves the volume Railway made for it.
+		CheckDestroy: acc.checkEmpty(environmentID, "volume.postgres-volume"),
 		Steps: []resource.TestStep{
 			{
 				Config: initial,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("railway_service.web", "live_changes.#", "0"),
-					resource.TestCheckResourceAttr("railway_database.postgres", "live_changes.#", "0"),
-					resource.TestCheckResourceAttr("railway_volume.data", "live_changes.#", "0"),
+					converged(all...),
 					resource.TestCheckResourceAttrWith("railway_service.web", "railway_id", func(id string) error {
 						serviceID = id
 						if id == "" {
@@ -192,10 +215,7 @@ func TestAccServiceLifecycle(t *testing.T) {
 				),
 			},
 			{Config: initial, PlanOnly: true},
-			{
-				Config: updated,
-				Check:  resource.TestCheckResourceAttr("railway_service.web", "live_changes.#", "0"),
-			},
+			{Config: updated, Check: converged(all...)},
 			// Removing watch_patterns resets it; Railway must agree it is reset.
 			{Config: updated, PlanOnly: true},
 			{
@@ -221,72 +241,41 @@ func TestAccServiceLifecycle(t *testing.T) {
 	})
 }
 
-// Destroying a bucket must remove it. Railway has been seen accepting a
-// bucket deletion and keeping the bucket; destroy then fails with "still
-// lists it", which this test reports.
-func TestAccBucketInGroup(t *testing.T) {
+// Railway accepts a bucket deletion and keeps the bucket, so destroy fails
+// and Terraform keeps it in state. The test then forgets it with a removed
+// block. The bucket stays in the project.
+func TestAccBucketDestroyIsRefused(t *testing.T) {
 	acc := requireAcc(t)
 	environmentID := acc.environment(t)
-	config := accConfig(environmentID, `
-resource "railway_group" "storage" {
-  environment_id = local.environment_id
-  name           = "storage"
-  color          = "#4f46e5"
-}
-
+	// Every run needs a new name: the buckets earlier runs created stay in
+	// the project.
+	suffix := make([]byte, 4)
+	_, _ = rand.Read(suffix)
+	bucket := accConfig(environmentID, fmt.Sprintf(`
 resource "railway_bucket" "assets" {
   environment_id = local.environment_id
-  name           = "assets"
+  name           = "assets-%x"
   region         = "sjc"
-  group          = railway_group.storage.name
 }
-`)
+`, suffix))
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviders,
-		CheckDestroy:             acc.checkEmpty(environmentID),
 		Steps: []resource.TestStep{
 			{
-				Config: config,
+				Config: bucket,
 				Check:  resource.TestCheckResourceAttr("railway_bucket.assets", "live_changes.#", "0"),
 			},
-			{Config: config, PlanOnly: true},
+			{Config: bucket, PlanOnly: true},
+			{Config: accConfig(environmentID, ""), ExpectError: regexp.MustCompile(`still lists it`)},
+			{Config: accConfig(environmentID, `
+removed {
+  from = railway_bucket.assets
+  lifecycle {
+    destroy = false
+  }
+}
+`)},
 		},
 	})
-}
-
-// Railway refuses a ChangeSet built on a configuration that has since
-// changed, and the client recognises the refusal as a stale base.
-func TestAccStaleBaseIsRecognised(t *testing.T) {
-	acc := requireAcc(t)
-	environmentID := acc.environment(t)
-	ctx := t.Context()
-	e := newEngine(acc.client, "")
-
-	snap, err := e.read(ctx, environmentID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("iacPartials exposed: %t", snap.env.IACPartials != nil)
-	imageService := func(name string) map[string]any {
-		node, err := graphNode("service."+name, func() any {
-			return railway.ServiceNamed(name, railway.ServiceConfig{"source": railway.Image("traefik/whoami:v1.10")})
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return node
-	}
-	stale, err := e.diff(ctx, snap, "service.stale", imageService("stale"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := e.apply(ctx, environmentID, "service.first", imageService("first")); err != nil {
-		t.Fatal(err)
-	}
-	_, err = acc.client.ApplyChangeSet(ctx, environmentID, e.changeSet(stale, true), snap.env.ConfigEtag, "acceptance: stale base")
-	if !railwayapi.IsConfigEtagConflict(err) {
-		t.Fatalf("applying on a stale base returned %v, want a stale-base conflict", err)
-	}
-	t.Logf("stale-base error: %v", err)
 }

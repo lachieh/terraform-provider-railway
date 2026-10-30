@@ -141,7 +141,12 @@ func TestFetchNameMapsPaginates(t *testing.T) {
 			writeJSON(w, 200, `{"errors":[{"message":"unexpected"}]}`)
 		}
 	})
-	env := &Environment{CanvasGroupRefs: map[string]any{"vol-1": "g-v"}}
+	// vol-2 is being deleted: it is still in the project and in
+	// canvasGroupRefs, but not in the environment's config.
+	env := &Environment{
+		CanvasGroupRefs: map[string]any{"vol-1": "g-v", "vol-2": "g-v"},
+		Config:          map[string]any{"volumes": map[string]any{"vol-1": map[string]any{}}},
+	}
 	names, err := f.client(t, Credential{Token: testToken}).FetchNameMaps(context.Background(), "proj", env)
 	if err != nil {
 		t.Fatal(err)

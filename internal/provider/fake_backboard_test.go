@@ -28,6 +28,8 @@ type fakeBackboard struct {
 	deleted []string
 	// staleOnce answers the next apply with a stale-base error.
 	staleOnce bool
+	// projectBuckets are buckets the project holds outside this environment.
+	projectBuckets []string
 	// keepDeleted accepts resource.delete changes for these resource types
 	// and leaves the resources in place.
 	keepDeleted map[string]bool
@@ -109,6 +111,11 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 			want = "bucket"
 		}
 		var edges []any
+		if want == "bucket" {
+			for _, name := range f.projectBuckets {
+				edges = append(edges, map[string]any{"node": map[string]any{"id": "project-" + name, "name": name, "groupId": nil}})
+			}
+		}
 		for _, resource := range f.graph.Resources {
 			if iac.ResourceType(resource) == want {
 				node := map[string]any{"id": iac.ResourceName(resource), "name": iac.ResourceName(resource), "groupId": nil}

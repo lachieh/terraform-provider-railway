@@ -57,7 +57,7 @@ resource "railway_database" "postgres" {
 - `output` (String) Variable other services reference for the connection string. Defaults to the engine's, such as `DATABASE_URL`.
 - `parent_service_id` (String) ID of the service this one is a cluster member of.
 - `preserve_variables` (List of String) Variables Railway keeps with their current values, as `railway.Preserve()`. Use for secrets set outside Terraform.
-- `region` (String) Region of the database's single replica.
+- `region` (String) Region of the database's single replica. Railway ignores it when it creates a template database, which starts in Railway's default region with its volume; set it to the region an imported database runs in.
 - `replica_config` (Attributes) Scaling bounds for a cluster. (see [below for nested schema](#nestedatt--replica_config))
 - `replica_stackers` (Map of String) Stacker assignment per region, for regions listed in `replicas`.
 - `replicas` (Map of Number) Replica count per region, such as `{ "us-west2" = 1 }`.
@@ -135,7 +135,7 @@ Optional:
 - `cron_schedule` (String) Cron schedule for a service that runs on a schedule.
 - `draining_seconds` (Number) Seconds an old deploy keeps running after it stops receiving traffic.
 - `healthcheck_path` (String) Path Railway polls before routing traffic to a deploy.
-- `healthcheck_timeout` (Number) Seconds a deploy has to pass its health check.
+- `healthcheck_timeout` (Number) Seconds a deploy has to pass its health check. Needs `healthcheck_path`: Railway drops a timeout without a path.
 - `ipv6_egress_enabled` (Boolean) Allow outbound IPv6.
 - `limit_override` (Attributes) Per-container resource limits. (see [below for nested schema](#nestedatt--deploy--limit_override))
 - `overlap_seconds` (Number) Seconds the old and new deploys both receive traffic.

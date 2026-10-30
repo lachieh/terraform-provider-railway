@@ -53,7 +53,7 @@ func NewDatabaseResource() resource.Resource {
 		Optional:            true,
 	}
 	attributes["region"] = schema.StringAttribute{
-		MarkdownDescription: "Region of the database's single replica.",
+		MarkdownDescription: "Region of the database's single replica. Railway ignores it when it creates a template database, which starts in Railway's default region with its volume; set it to the region an imported database runs in.",
 		Optional:            true,
 	}
 	return &nodeResource[databaseModel]{kind: nodeKind[databaseModel]{

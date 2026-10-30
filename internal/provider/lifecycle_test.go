@@ -409,9 +409,9 @@ func importStep(resourceName, address string) resource.TestStep {
 // Terraform keeps the resource in state, so a later destroy deletes it.
 func TestDestroyFailsWhenRailwayKeepsTheResource(t *testing.T) {
 	requireCLI(t)
-	wait := removalWait
-	removalWait = 100 * time.Millisecond
-	t.Cleanup(func() { removalWait = wait })
+	wait := settleWait
+	settleWait = 100 * time.Millisecond
+	t.Cleanup(func() { settleWait = wait })
 	fake, server := newFakeBackboard(t)
 	bucket := environmentConfig(server.URL, `
 resource "railway_bucket" "backups" {
@@ -534,4 +534,27 @@ func TestSecretVariablesStayOutOfState(t *testing.T) {
 			},
 		},
 	})
+}
+
+// A bucket name the project already holds, from a bucket Railway could not
+// delete, cannot be created in this environment.
+func TestCreateRefusesBucketNameTakenInProject(t *testing.T) {
+	requireCLI(t)
+	fake, server := newFakeBackboard(t)
+	fake.projectBuckets = []string{"assets"}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{{
+			Config: environmentConfig(server.URL, `
+resource "railway_bucket" "assets" {
+  environment_id = local.environment_id
+  name           = "assets"
+}
+`),
+			ExpectError: regexp.MustCompile(`already has a bucket named "assets"`),
+		}},
+	})
+	if len(fake.changeSets()) > 0 {
+		t.Errorf("applied %d ChangeSets for a refused bucket", len(fake.changeSets()))
+	}
 }

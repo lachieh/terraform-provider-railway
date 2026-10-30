@@ -28,12 +28,16 @@ provider "railway" {}
 
 ## How plans work
 
-Each resource is one node of a Railway environment's IaC graph, addressed by type and name (`service.web`). The provider builds the node with [`railway-go-sdk`](https://github.com/railwayapp/railway-go-sdk), diffs it against the live environment with the same engine `railway config plan` uses, and has Railway preview the result. An apply sends that ChangeSet through `environmentApplyChangeSet` against the environment's current configuration version, and replans if another writer moved it.
+Each resource is one node of a Railway environment's IaC graph, addressed by type and name (`service.web`). The provider builds the node with [`railway-go-sdk`](https://github.com/railwayapp/railway-go-sdk), diffs it against the live environment with the same engine `railway config plan` uses, and has Railway preview the result. An apply reads the environment again, replans, and sends that ChangeSet through `environmentApplyChangeSet`.
 
 - A resource's configuration is its whole definition, as a `railway.go` file is for `railway config apply`. A source, build or deploy setting you leave unset is reset to Railway's default, and a variable you leave out is deleted; keep secrets set outside Terraform in `preserve_variables`. Domains and TCP proxies you do not list stay attached.
 - A refresh records the changes Railway needs in `live_changes`. A plan shows them leaving, and warns with the full list of changes it will send.
 - Creating a resource that already exists fails; import it with `<environment_id>/<type>.<name>`. The first plan after an import lists every configured setting as added and `live_changes` as computed from an empty configuration; the plan's \"Railway changes\" warning is the list that will be applied.
 - With `partial` set, resources owned by another partial are refused, as they are for a `railway.go` file that declares `const Partial`.
+- Railway meters its API per hour for the whole account or workspace, not per token ([limits](https://docs.railway.com/reference/public-api#rate-limits): 1,000 requests an hour on Hobby, 10,000 on Pro), and the Railway CLI spends from the same budget. A plan costs about five requests per environment plus two per resource; an apply costs about fifteen per changed resource. When Railway asks to wait longer than 30 seconds, the provider stops and reports when the limit resets.
+- Railway does not reject a ChangeSet planned against an older configuration, so two applies to the same resource at once leave whichever ran last. Run one apply per environment at a time, as you would `railway config apply`.
+- Railway cannot delete a bucket: it accepts the deletion and keeps the bucket. Destroying a `railway_bucket` therefore fails and keeps it in state; use a `removed` block with `destroy = false` to stop managing it. Buckets belong to the project, so a deleted bucket's name stays taken, and creating a bucket under a name the project already holds is refused.
+- A template database such as `engine = "postgres"` creates its own volume, `<name>-volume`, with a suffix if the name is taken, in Railway's default region; Railway ignores `region` when it creates the database. Destroying the database leaves the volume, as `railway config apply` does. To manage the volume, import it as a `railway_volume` after the database exists.
 
 ## Coming from `railway.go`
 

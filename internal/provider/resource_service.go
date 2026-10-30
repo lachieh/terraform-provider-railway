@@ -505,10 +505,14 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 			MarkdownDescription: "Deploy settings.",
 			Optional:            true,
 			Attributes: map[string]schema.Attribute{
-				"start_command":       optionalString("Command that starts the service."),
-				"pre_deploy_command":  schema.ListAttribute{MarkdownDescription: "Commands run before each deploy.", Optional: true, ElementType: types.StringType},
-				"healthcheck_path":    optionalString("Path Railway polls before routing traffic to a deploy."),
-				"healthcheck_timeout": optionalInt("Seconds a deploy has to pass its health check."),
+				"start_command":      optionalString("Command that starts the service."),
+				"pre_deploy_command": schema.ListAttribute{MarkdownDescription: "Commands run before each deploy.", Optional: true, ElementType: types.StringType},
+				"healthcheck_path":   optionalString("Path Railway polls before routing traffic to a deploy."),
+				"healthcheck_timeout": schema.Int64Attribute{
+					MarkdownDescription: "Seconds a deploy has to pass its health check. Needs `healthcheck_path`: Railway drops a timeout without a path.",
+					Optional:            true,
+					Validators:          []validator.Int64{int64validator.AlsoRequires(path.MatchRelative().AtParent().AtName("healthcheck_path"))},
+				},
 				"restart_policy_type": schema.StringAttribute{
 					MarkdownDescription: "`ON_FAILURE`, `ALWAYS` or `NEVER`.",
 					Optional:            true,
