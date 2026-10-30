@@ -97,7 +97,8 @@ func (a *accRailway) upsertVariable(t *testing.T, environmentID, serviceID, name
 	}
 }
 
-// checkEmpty fails when the environment lists resources other than kept.
+// checkEmpty fails when the environment lists a resource whose address does
+// not start with one of kept.
 func (a *accRailway) checkEmpty(environmentID string, kept ...string) resource.TestCheckFunc {
 	return func(*terraform.State) error {
 		e := newEngine(a.client, "")
@@ -107,7 +108,8 @@ func (a *accRailway) checkEmpty(environmentID string, kept ...string) resource.T
 		}
 		var left []string
 		for _, node := range snap.graph.Resources {
-			if address := fmt.Sprint(node["type"], ".", node["name"]); !slices.Contains(kept, address) {
+			address := fmt.Sprint(node["type"], ".", node["name"])
+			if !slices.ContainsFunc(kept, func(prefix string) bool { return strings.HasPrefix(address, prefix) }) {
 				left = append(left, address)
 			}
 		}
@@ -198,7 +200,9 @@ func TestAccServiceLifecycle(t *testing.T) {
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviders,
-		// Destroying a template database leaves the volume Railway made for it.
+		// Destroying a template database leaves the volume Railway made for
+		// it: postgres-volume, with a suffix while earlier runs' deleted
+		// volumes still hold the name in the project.
 		CheckDestroy: acc.checkEmpty(environmentID, "volume.postgres-volume"),
 		Steps: []resource.TestStep{
 			{
