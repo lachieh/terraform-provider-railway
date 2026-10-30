@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -147,12 +148,13 @@ func (f *fakeBackboard) handle(operation string, variables map[string]any) (any,
 		return map[string]any{"project": map[string]any{"id": fakeProjectID, "name": "test", "workspaceId": "workspace-test"}}, nil
 	case "IacProjectEnvironments":
 		if projectID := variables["projectId"].(string); projectID != fakeProjectID {
-			// The environment Railway creates with a project lists first.
+			// Railway lists environments in no fixed order; the one it
+			// created with the project lists last here.
 			edges := []any{}
-			ids := append([]string{projectID + "-env"}, iac.SortedKeys(f.environments)...)
-			for i, id := range ids {
+			ids := slices.DeleteFunc(iac.SortedKeys(f.environments), func(id string) bool { return id == projectID+"-env" })
+			for _, id := range append(ids, projectID+"-env") {
 				environment, ok := f.environments[id]
-				if ok && environment["projectId"] == projectID && environment["deletedAt"] == nil && (i == 0 || id != ids[0]) {
+				if ok && environment["projectId"] == projectID && environment["deletedAt"] == nil {
 					edges = append(edges, map[string]any{"node": environment})
 				}
 			}
@@ -231,7 +233,8 @@ func (f *fakeBackboard) handleContainer(operation string, variables map[string]a
 	case "IacProjectCreate":
 		f.created++
 		project := map[string]any{"id": fmt.Sprintf("project-%d", f.created), "name": input["name"], "description": "",
-			"workspaceId": "workspace-test", "isPublic": false, "prDeploys": false, "deletedAt": nil}
+			"workspaceId": "workspace-test", "isPublic": false, "prDeploys": false, "deletedAt": nil,
+			"primaryEnvironmentId": fmt.Sprintf("project-%d-env", f.created)}
 		for _, key := range []string{"description", "isPublic", "prDeploys", "workspaceId"} {
 			if value, ok := input[key]; ok {
 				project[key] = value

@@ -8,15 +8,15 @@ import (
 )
 
 const projectDetailsQuery = `query IacProjectDetails($id: String!) {
-  project(id: $id) { id name description workspaceId isPublic prDeploys deletedAt }
+  project(id: $id) { id name description workspaceId isPublic prDeploys primaryEnvironmentId deletedAt }
 }`
 
 const projectCreateMutation = `mutation IacProjectCreate($input: ProjectCreateInput!) {
-  projectCreate(input: $input) { id name description workspaceId isPublic prDeploys deletedAt }
+  projectCreate(input: $input) { id name description workspaceId isPublic prDeploys primaryEnvironmentId deletedAt }
 }`
 
 const projectUpdateMutation = `mutation IacProjectUpdate($id: String!, $input: ProjectUpdateInput!) {
-  projectUpdate(id: $id, input: $input) { id name description workspaceId isPublic prDeploys deletedAt }
+  projectUpdate(id: $id, input: $input) { id name description workspaceId isPublic prDeploys primaryEnvironmentId deletedAt }
 }`
 
 const projectDeleteMutation = `mutation IacProjectDelete($id: String!) { projectDelete(id: $id) }`
@@ -37,13 +37,16 @@ const environmentDeleteMutation = `mutation IacEnvironmentDelete($id: String!) {
 
 // ProjectDetails is a project with the settings railway_project manages.
 type ProjectDetails struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	WorkspaceID string  `json:"workspaceId"`
-	IsPublic    bool    `json:"isPublic"`
-	PRDeploys   bool    `json:"prDeploys"`
-	DeletedAt   *string `json:"deletedAt"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	WorkspaceID string `json:"workspaceId"`
+	IsPublic    bool   `json:"isPublic"`
+	PRDeploys   bool   `json:"prDeploys"`
+	// PrimaryEnvironmentID is the project's main environment, when Railway
+	// reports one.
+	PrimaryEnvironmentID string  `json:"primaryEnvironmentId"`
+	DeletedAt            *string `json:"deletedAt"`
 }
 
 // ProjectInput is what projectCreate and projectUpdate set. A nil field is

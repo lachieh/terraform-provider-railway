@@ -121,8 +121,9 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("Reading Railway project environments", fmt.Sprintf("Project %s: %v", project.ID, err))
 		return
 	}
-	model.DefaultEnvironmentID = types.StringValue(environments[0].ID)
-	model.DefaultEnvironmentName = types.StringValue(environments[0].Name)
+	environment := defaultEnvironment(project, environments)
+	model.DefaultEnvironmentID = types.StringValue(environment.ID)
+	model.DefaultEnvironmentName = types.StringValue(environment.Name)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
@@ -143,15 +144,14 @@ func (r *projectResource) Read(ctx context.Context, req resource.ReadRequest, re
 	}
 	model.set(project)
 	if model.DefaultEnvironmentID.IsNull() {
-		// Imported: take the first environment Railway lists.
 		environments, err := r.engine.client.Environments(ctx, project.ID)
 		if err != nil {
 			resp.Diagnostics.AddError("Reading Railway project environments", err.Error())
 			return
 		}
-		if len(environments) > 0 {
-			model.DefaultEnvironmentID = types.StringValue(environments[0].ID)
-			model.DefaultEnvironmentName = types.StringValue(environments[0].Name)
+		if environment := defaultEnvironment(project, environments); environment != nil {
+			model.DefaultEnvironmentID = types.StringValue(environment.ID)
+			model.DefaultEnvironmentName = types.StringValue(environment.Name)
 		}
 	} else if environment, err := r.engine.client.EnvironmentDetails(ctx, model.DefaultEnvironmentID.ValueString()); err == nil {
 		model.DefaultEnvironmentName = types.StringValue(environment.Name)
@@ -237,6 +237,27 @@ func confirmDeleted(ctx context.Context, what string, read func() error) error {
 
 func (r *projectResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// defaultEnvironment picks, for an imported project, the environment Railway
+// created with it: the project's primary environment, else the one named
+// production, else the first listed. Railway lists environments in no fixed
+// order.
+func defaultEnvironment(project *railwayapi.ProjectDetails, environments []railwayapi.EnvironmentSummary) *railwayapi.EnvironmentSummary {
+	for _, want := range []func(railwayapi.EnvironmentSummary) bool{
+		func(e railwayapi.EnvironmentSummary) bool { return e.ID == project.PrimaryEnvironmentID },
+		func(e railwayapi.EnvironmentSummary) bool { return e.Name == "production" },
+	} {
+		for i := range environments {
+			if want(environments[i]) {
+				return &environments[i]
+			}
+		}
+	}
+	if len(environments) == 0 {
+		return nil
+	}
+	return &environments[0]
 }
 
 func configureResource(req resource.ConfigureRequest, resp *resource.ConfigureResponse) *engine {
