@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -12,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	railway "github.com/railwayapp/railway-go-sdk"
 
@@ -145,6 +147,7 @@ func (r *nodeResource[M]) desired(model *M) (map[string]any, diag.Diagnostics) {
 func (r *nodeResource[M]) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var model M
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	resp.Diagnostics.Append(r.prepareSecrets(ctx, &model, req.Config, nil)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -213,6 +216,7 @@ func (r *nodeResource[M]) Read(ctx context.Context, req resource.ReadRequest, re
 func (r *nodeResource[M]) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var model M
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	resp.Diagnostics.Append(r.prepareSecrets(ctx, &model, req.Config, &req.State)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -251,7 +255,11 @@ func (r *nodeResource[M]) Delete(ctx context.Context, req resource.DeleteRequest
 	if r.kind.remove != nil {
 		if err := r.kind.remove(ctx, r.engine, &model); err != nil {
 			resp.Diagnostics.AddError("Deleting Railway "+r.kind.graphType, err.Error())
+			return
 		}
+	}
+	if err := r.engine.awaitRemoval(ctx, environmentID, address); err != nil {
+		resp.Diagnostics.AddError("Deleting Railway "+r.kind.graphType, err.Error())
 	}
 }
 
@@ -277,8 +285,16 @@ func (r *nodeResource[M]) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 	var model M
 	resp.Diagnostics.Append(req.Config.Get(ctx, &model)...)
+	var prior *tfsdk.State
+	if !req.State.Raw.IsNull() {
+		prior = &req.State
+	}
+	resp.Diagnostics.Append(r.prepareSecrets(ctx, &model, req.Config, prior)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	if s := secretSettings(&model); s != nil {
+		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("secret_variable_names"), s.SecretNames)...)
 	}
 	node, diags := r.desired(&model)
 	resp.Diagnostics.Append(diags...)
@@ -317,6 +333,56 @@ func (r *nodeResource[M]) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		}
 		resp.Diagnostics.AddWarning("Railway changes for "+address, strings.Join(lines, "\n"))
 	}
+}
+
+// secretSettings returns the service settings of a model that has
+// secret_variables, or nil.
+func secretSettings(model any) *serviceSettings {
+	if holder, ok := model.(interface{ settings() *serviceSettings }); ok {
+		return holder.settings()
+	}
+	return nil
+}
+
+// prepareSecrets takes secret_variables from the configuration, where the
+// write-only values are, and picks the ones this plan or apply sends: all of
+// them on create or when secret_variables_version changes, otherwise only
+// names the prior state does not have.
+func (r *nodeResource[M]) prepareSecrets(ctx context.Context, model *M, config tfsdk.Config, prior *tfsdk.State) diag.Diagnostics {
+	var diags diag.Diagnostics
+	s := secretSettings(model)
+	if s == nil {
+		return diags
+	}
+	var values map[string]string
+	var configured types.Map
+	diags.Append(config.GetAttribute(ctx, path.Root("secret_variables"), &configured)...)
+	if !configured.IsNull() && !configured.IsUnknown() {
+		diags.Append(configured.ElementsAs(ctx, &values, false)...)
+	}
+	names := make([]attr.Value, 0, len(values))
+	for _, name := range iac.SortedKeys(values) {
+		names = append(names, types.StringValue(name))
+	}
+	s.SecretNames = types.SetValueMust(types.StringType, names)
+	s.SecretVariables = types.MapNull(types.StringType)
+
+	send := map[string]string{}
+	var priorNames types.Set
+	var priorVersion types.String
+	if prior != nil {
+		diags.Append(prior.GetAttribute(ctx, path.Root("secret_variable_names"), &priorNames)...)
+		diags.Append(prior.GetAttribute(ctx, path.Root("secret_variables_version"), &priorVersion)...)
+	}
+	resend := prior == nil || !s.SecretVersion.Equal(priorVersion)
+	known := setStrings(priorNames)
+	for name, value := range values {
+		if resend || !slices.Contains(known, name) {
+			send[name] = value
+		}
+	}
+	s.secretValues = send
+	return diags
 }
 
 func (r *nodeResource[M]) setComputed(common *commonModel, snap *snapshot, address string, liveChanges []string) {

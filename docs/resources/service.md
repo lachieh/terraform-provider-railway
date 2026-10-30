@@ -17,6 +17,12 @@ variable "environment_id" {
   type = string
 }
 
+variable "stripe_key" {
+  type      = string
+  sensitive = true
+  ephemeral = true
+}
+
 resource "railway_volume" "data" {
   environment_id = var.environment_id
   name           = "web-data"
@@ -67,6 +73,10 @@ resource "railway_service" "web" {
   # Set outside Terraform; Railway keeps the current values.
   preserve_variables = ["SESSION_SECRET"]
 
+  # Sent to Railway, never stored in state. Change the version to resend.
+  secret_variables         = { STRIPE_KEY = var.stripe_key }
+  secret_variables_version = "1"
+
   variable_references = {
     DATABASE_URL = { resource = railway_database.postgres.address, output = "DATABASE_URL" }
   }
@@ -87,6 +97,8 @@ resource "railway_service" "web" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `build` (Attributes) Build settings. (see [below for nested schema](#nestedatt--build))
 - `cdn` (Attributes) Edge caching for the service's public domains, as `railway.ServiceCdn`. Applies without a deploy. (see [below for nested schema](#nestedatt--cdn))
 - `cluster_display` (Attributes) How the canvas labels a cluster member. (see [below for nested schema](#nestedatt--cluster_display))
@@ -101,6 +113,8 @@ resource "railway_service" "web" {
 - `replica_config` (Attributes) Scaling bounds for a cluster. (see [below for nested schema](#nestedatt--replica_config))
 - `replica_stackers` (Map of String) Stacker assignment per region, for regions listed in `replicas`.
 - `replicas` (Map of Number) Replica count per region, such as `{ "us-west2" = 1 }`.
+- `secret_variables` (Map of String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Variables whose values Terraform sends to Railway but never stores in plan or state. Requires Terraform 1.11 or OpenTofu 1.11. Values are sent when the resource is created, when `secret_variables_version` changes, and for names added since the last apply; otherwise Railway keeps the current values, so change `secret_variables_version` to send a changed value.
+- `secret_variables_version` (String) Any value; changing it sends every `secret_variables` value again.
 - `service_domains` (Attributes Map) Railway-generated `*.up.railway.app` domains keyed by host name. (see [below for nested schema](#nestedatt--service_domains))
 - `shared_variables` (Map of String) Variables that reference an environment shared variable, keyed by variable and valued by shared variable name, as `railway.Shared`.
 - `source` (Attributes) Where the service's code comes from. Set exactly one of `github`, `image`, `template` or `empty`; omit for an empty service. (see [below for nested schema](#nestedatt--source))
@@ -117,6 +131,7 @@ resource "railway_service" "web" {
 - `live_changes` (List of String) Changes Railway needs to match this configuration, as `railway config plan` lists them. Empty after an apply; a refresh fills it when the live environment drifts, and the next plan applies them.
 - `project_id` (String) ID of the Railway project the environment belongs to.
 - `railway_id` (String) Railway's ID for this service.
+- `secret_variable_names` (Set of String) Names in `secret_variables`, which Terraform stores so a refresh can tell them from variables to delete.
 
 <a id="nestedatt--build"></a>
 ### Nested Schema for `build`

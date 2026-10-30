@@ -28,6 +28,9 @@ type fakeBackboard struct {
 	deleted []string
 	// staleOnce answers the next apply with a stale-base error.
 	staleOnce bool
+	// keepDeleted accepts resource.delete changes for these resource types
+	// and leaves the resources in place.
+	keepDeleted map[string]bool
 }
 
 const (
@@ -188,7 +191,9 @@ func (f *fakeBackboard) apply(changeSet iac.ChangeSet) {
 		case "resource.create":
 			f.graph.Resources = append(f.graph.Resources, change["resource"].(map[string]any))
 		case "resource.delete":
-			f.remove(address)
+			if !f.keepDeleted[strings.SplitN(address, ".", 2)[0]] {
+				f.remove(address)
+			}
 		case "resource.update":
 			node := f.graph.FindResource(address)
 			if after, ok := change["after"]; ok && after != nil {
@@ -257,12 +262,32 @@ func (f *fakeBackboard) rebuild() {
 	f.graph = iac.ProjectDefinitionToGraph(map[string]any{"name": "test", "resources": resources})
 }
 
+// keepDeletes makes applies accept deletions of resourceType without
+// performing them, or perform them again when keep is false.
+func (f *fakeBackboard) keepDeletes(resourceType string, keep bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.keepDeleted == nil {
+		f.keepDeleted = map[string]bool{}
+	}
+	f.keepDeleted[resourceType] = keep
+}
+
 // drift edits the live environment outside Terraform.
 func (f *fakeBackboard) drift(address string, edit func(node map[string]any)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	edit(f.graph.FindResource(address))
 	f.etag++
+}
+
+// variable returns a stored variable value, unmasked, or "" when unset.
+func (f *fakeBackboard) variable(address, name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	value, _ := iac.Field(iac.Field(f.graph.FindResource(address), "variables"), name).(map[string]any)
+	text, _ := value["value"].(string)
+	return text
 }
 
 func (f *fakeBackboard) addresses() []string {

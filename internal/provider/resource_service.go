@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
@@ -32,6 +33,9 @@ type serviceSettings struct {
 	PreserveVariables  []string                  `tfsdk:"preserve_variables"`
 	SharedVariables    map[string]string         `tfsdk:"shared_variables"`
 	VariableReferences map[string]referenceModel `tfsdk:"variable_references"`
+	SecretVariables    types.Map                 `tfsdk:"secret_variables"`
+	SecretVersion      types.String              `tfsdk:"secret_variables_version"`
+	SecretNames        types.Set                 `tfsdk:"secret_variable_names"`
 	VolumeMounts       map[string]string         `tfsdk:"volume_mounts"`
 	ConfigFile         *string                   `tfsdk:"config_file"`
 	Tracing            *tracingModel             `tfsdk:"tracing"`
@@ -42,7 +46,13 @@ type serviceSettings struct {
 	ClusterRole        *string                   `tfsdk:"cluster_role"`
 	ReplicaConfig      *replicaConfigModel       `tfsdk:"replica_config"`
 	ClusterDisplay     *clusterDisplayModel      `tfsdk:"cluster_display"`
+
+	// secretValues are the secret_variables values this apply sends; the
+	// other secret_variable_names are preserved.
+	secretValues map[string]string
 }
+
+func (s *serviceSettings) settings() *serviceSettings { return s }
 
 type replicaConfigModel struct {
 	MinReplicas *int64 `tfsdk:"min_replicas"`
@@ -329,7 +339,18 @@ func (s *serviceSettings) config() railway.ServiceConfig {
 		}
 		config["tcp"] = ports
 	}
-	if env := variableEnv(s.Variables, s.PreserveVariables, s.SharedVariables, s.VariableReferences); len(env) > 0 {
+	env := variableEnv(s.Variables, s.PreserveVariables, s.SharedVariables, s.VariableReferences)
+	for _, name := range setStrings(s.SecretNames) {
+		if _, ok := env[name]; ok {
+			panic(fmt.Sprintf("Variable %s is set in secret_variables and in another variables attribute.", name))
+		}
+		if value, ok := s.secretValues[name]; ok {
+			env[name] = value
+		} else {
+			env[name] = railway.Preserve()
+		}
+	}
+	if len(env) > 0 {
 		config["env"] = env
 	}
 	if s.VolumeMounts != nil {
@@ -566,6 +587,24 @@ func serviceSettingsAttributes() map[string]schema.Attribute {
 				"resource": schema.StringAttribute{MarkdownDescription: "Graph address of the resource, such as `railway_database.postgres.address` (`database.postgres`).", Required: true},
 				"output":   schema.StringAttribute{MarkdownDescription: "Variable of that resource, such as `DATABASE_URL`.", Required: true},
 			}},
+		},
+		"secret_variables": schema.MapAttribute{
+			MarkdownDescription: "Variables whose values Terraform sends to Railway but never stores in plan or state. Requires Terraform 1.11 or OpenTofu 1.11. " +
+				"Values are sent when the resource is created, when `secret_variables_version` changes, and for names added since the last apply; " +
+				"otherwise Railway keeps the current values, so change `secret_variables_version` to send a changed value.",
+			Optional:    true,
+			Sensitive:   true,
+			WriteOnly:   true,
+			ElementType: types.StringType,
+		},
+		"secret_variables_version": schema.StringAttribute{
+			MarkdownDescription: "Any value; changing it sends every `secret_variables` value again.",
+			Optional:            true,
+		},
+		"secret_variable_names": schema.SetAttribute{
+			MarkdownDescription: "Names in `secret_variables`, which Terraform stores so a refresh can tell them from variables to delete.",
+			Computed:            true,
+			ElementType:         types.StringType,
 		},
 		"volume_mounts": schema.MapAttribute{
 			MarkdownDescription: "Volumes keyed by mount path and valued by `railway_volume` name. Reference the volume (`railway_volume.data.name`) so Terraform orders the two. Backup schedules cannot be set through the SDK's volume mounts.",

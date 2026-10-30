@@ -3,8 +3,10 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	railway "github.com/railwayapp/railway-go-sdk"
 
 	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
@@ -91,3 +93,14 @@ func putFloat(out map[string]any, key string, value *float64) {
 }
 
 func itoa(value int) string { return strconv.Itoa(value) }
+
+func setStrings(set types.Set) []string {
+	var out []string
+	for _, element := range set.Elements() {
+		if value, ok := element.(types.String); ok && !value.IsNull() && !value.IsUnknown() {
+			out = append(out, value.ValueString())
+		}
+	}
+	slices.Sort(out)
+	return out
+}

@@ -339,3 +339,33 @@ func summaries(changes []map[string]any) []string {
 	}
 	return out
 }
+
+// removalWait bounds how long Delete waits for Railway to stop listing a
+// resource it accepted the deletion of.
+var removalWait = 30 * time.Second
+
+// awaitRemoval returns once the environment no longer lists address, and an
+// error when it still does after removalWait. Railway can accept a deletion
+// and leave the resource in place, and Terraform must then keep it in state.
+func (e *engine) awaitRemoval(ctx context.Context, environmentID, address string) error {
+	deadline := time.Now().Add(removalWait)
+	for {
+		e.invalidate(environmentID)
+		snap, err := e.read(ctx, environmentID)
+		if err != nil {
+			return err
+		}
+		if snap.graph.FindResource(address) == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Railway accepted the deletion of %s but still lists it after %s, so Terraform keeps it in state. "+
+				"Delete it in Railway, then run terraform apply again", address, removalWait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(removalWait / 10):
+		}
+	}
+}

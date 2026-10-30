@@ -39,6 +39,8 @@ resource "railway_function" "hook" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `build` (Attributes) Build settings. (see [below for nested schema](#nestedatt--build))
 - `cdn` (Attributes) Edge caching for the service's public domains, as `railway.ServiceCdn`. Applies without a deploy. (see [below for nested schema](#nestedatt--cdn))
 - `cluster_display` (Attributes) How the canvas labels a cluster member. (see [below for nested schema](#nestedatt--cluster_display))
@@ -55,6 +57,8 @@ resource "railway_function" "hook" {
 - `replica_stackers` (Map of String) Stacker assignment per region, for regions listed in `replicas`.
 - `replicas` (Map of Number) Replica count per region, such as `{ "us-west2" = 1 }`.
 - `runtime` (String) Runtime image from `railway.FunctionImages`. Defaults to `bun`. Conflicts with `image`.
+- `secret_variables` (Map of String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Variables whose values Terraform sends to Railway but never stores in plan or state. Requires Terraform 1.11 or OpenTofu 1.11. Values are sent when the resource is created, when `secret_variables_version` changes, and for names added since the last apply; otherwise Railway keeps the current values, so change `secret_variables_version` to send a changed value.
+- `secret_variables_version` (String) Any value; changing it sends every `secret_variables` value again.
 - `service_domains` (Attributes Map) Railway-generated `*.up.railway.app` domains keyed by host name. (see [below for nested schema](#nestedatt--service_domains))
 - `shared_variables` (Map of String) Variables that reference an environment shared variable, keyed by variable and valued by shared variable name, as `railway.Shared`.
 - `tcp_proxies` (List of Number) Application ports exposed through Railway's TCP proxy.
@@ -70,6 +74,7 @@ resource "railway_function" "hook" {
 - `live_changes` (List of String) Changes Railway needs to match this configuration, as `railway config plan` lists them. Empty after an apply; a refresh fills it when the live environment drifts, and the next plan applies them.
 - `project_id` (String) ID of the Railway project the environment belongs to.
 - `railway_id` (String) Railway's ID for this service.
+- `secret_variable_names` (Set of String) Names in `secret_variables`, which Terraform stores so a refresh can tell them from variables to delete.
 
 <a id="nestedatt--build"></a>
 ### Nested Schema for `build`

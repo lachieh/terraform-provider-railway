@@ -2,11 +2,14 @@ package provider
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
@@ -400,4 +403,135 @@ func importStep(resourceName, address string) resource.TestStep {
 			return nil
 		},
 	}
+}
+
+// Railway can accept a deletion and keep the resource. Destroy then fails and
+// Terraform keeps the resource in state, so a later destroy deletes it.
+func TestDestroyFailsWhenRailwayKeepsTheResource(t *testing.T) {
+	requireCLI(t)
+	wait := removalWait
+	removalWait = 100 * time.Millisecond
+	t.Cleanup(func() { removalWait = wait })
+	fake, server := newFakeBackboard(t)
+	bucket := environmentConfig(server.URL, `
+resource "railway_bucket" "backups" {
+  environment_id = local.environment_id
+  name           = "backups"
+  region         = "sjc"
+}
+`)
+	empty := environmentConfig(server.URL, "")
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{Config: bucket},
+			{
+				PreConfig:   func() { fake.keepDeletes("bucket", true) },
+				Config:      empty,
+				ExpectError: regexp.MustCompile(`still lists it`),
+			},
+			{
+				PreConfig: func() { fake.keepDeletes("bucket", false) },
+				Config:    empty,
+				Check: func(*terraform.State) error {
+					if left := fake.addresses(); len(left) > 0 {
+						return fmt.Errorf("resources left in the environment: %v", left)
+					}
+					deletes := 0
+					for _, changeSet := range fake.changeSets() {
+						for _, change := range changeSet.Changes {
+							if iac.FieldStr(change, "kind") == "resource.delete" {
+								deletes++
+							}
+						}
+					}
+					if deletes != 2 {
+						return fmt.Errorf("want the kept bucket deleted again, got %d deletions", deletes)
+					}
+					return nil
+				},
+			},
+		},
+	})
+}
+
+func secretService(endpoint, version string, secrets map[string]string) string {
+	entries := ""
+	for _, name := range slices.Sorted(maps.Keys(secrets)) {
+		entries += fmt.Sprintf("    %s = %q\n", name, secrets[name])
+	}
+	return environmentConfig(endpoint, fmt.Sprintf(`
+resource "railway_service" "api" {
+  environment_id           = local.environment_id
+  name                     = "api"
+  source                   = { image = { image = "nginx:1" } }
+  secret_variables_version = %q
+  secret_variables = {
+%s  }
+}
+`, version, entries))
+}
+
+// secret_variables reach Railway, never Terraform state, and are resent only
+// when the version changes or a name is new.
+func TestSecretVariablesStayOutOfState(t *testing.T) {
+	requireCLI(t)
+	fake, server := newFakeBackboard(t)
+	expectSecret := func(name, want string) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			if got := fake.variable("service.api", name); got != want {
+				return fmt.Errorf("Railway has %s = %q, want %q", name, got, want)
+			}
+			return nil
+		}
+	}
+	notInState := func(s *terraform.State) error {
+		for address, res := range s.RootModule().Resources {
+			for key, value := range res.Primary.Attributes {
+				if strings.Contains(value, "s3cret") {
+					return fmt.Errorf("%s.%s holds a secret value", address, key)
+				}
+			}
+		}
+		return nil
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: secretService(server.URL, "1", map[string]string{"API_KEY": "s3cret-1"}),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					expectSecret("API_KEY", "s3cret-1"),
+					notInState,
+					resource.TestCheckResourceAttr("railway_service.api", "secret_variable_names.#", "1"),
+					resource.TestCheckTypeSetElemAttr("railway_service.api", "secret_variable_names.*", "API_KEY"),
+					resource.TestCheckNoResourceAttr("railway_service.api", "secret_variables.%"),
+				),
+			},
+			{Config: secretService(server.URL, "1", map[string]string{"API_KEY": "s3cret-1"}), PlanOnly: true},
+			// A changed value under the same version is not sent.
+			{Config: secretService(server.URL, "1", map[string]string{"API_KEY": "s3cret-2"}), PlanOnly: true},
+			{
+				Config: secretService(server.URL, "2", map[string]string{"API_KEY": "s3cret-2"}),
+				Check:  resource.ComposeAggregateTestCheckFunc(expectSecret("API_KEY", "s3cret-2"), notInState),
+			},
+			// A new name is sent without a version change; the others are kept.
+			{
+				Config: secretService(server.URL, "2", map[string]string{"API_KEY": "s3cret-3", "WEBHOOK_KEY": "s3cret-w"}),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					expectSecret("API_KEY", "s3cret-2"),
+					expectSecret("WEBHOOK_KEY", "s3cret-w"),
+					resource.TestCheckResourceAttr("railway_service.api", "secret_variable_names.#", "2"),
+				),
+			},
+			{Config: secretService(server.URL, "2", map[string]string{"API_KEY": "s3cret-3", "WEBHOOK_KEY": "s3cret-w"}), PlanOnly: true},
+			// A removed name is deleted, like any variable the configuration drops.
+			{
+				Config: secretService(server.URL, "2", map[string]string{"WEBHOOK_KEY": "s3cret-w"}),
+				Check:  resource.ComposeAggregateTestCheckFunc(expectSecret("API_KEY", ""), expectSecret("WEBHOOK_KEY", "s3cret-w")),
+			},
+		},
+	})
 }
