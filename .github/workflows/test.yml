@@ -127,8 +127,11 @@ jobs:
       - name: Check formatting and validate
         run: make examples-check
 
-  # Acceptance runs spend the Railway token's hourly request quota, so they
-  # run for main and on demand, not for every pull request.
+  # One acceptance run spends about half of the acceptance workspace's hourly
+  # Railway API budget (1,000 requests on Hobby), so it runs for main and on
+  # demand, not for every pull request, and with OpenTofu only: the provider
+  # makes the same Railway calls under either CLI, and the unit tests run
+  # both CLIs.
   acceptance:
     name: acceptance (${{ matrix.cli }})
     if: github.event_name != 'pull_request'
@@ -142,8 +145,6 @@ jobs:
         include:
           - cli: opentofu
             provider_host: registry.opentofu.org
-          - cli: terraform
-            provider_host: registry.terraform.io
     concurrency:
       group: acceptance-railway-account
       cancel-in-progress: false
