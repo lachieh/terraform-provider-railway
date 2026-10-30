@@ -48,15 +48,16 @@ make test        # go test ./...
 make test-race   # go test -race ./...
 ```
 
-Acceptance tests create real resources in a Railway account and need a token:
+Acceptance tests run against real Railway. They need a project made for them, whose name starts with `tf-acc` (the tests refuse any other project), and a workspace token that can create environments in it. Each test creates an environment named `tfacc-<random>`, applies, plans, destroys and deletes the environment.
 
 ```sh
-export RAILWAY_ACC_TOKEN=...
+export RAILWAY_ACC_TOKEN=...        # workspace token
+export RAILWAY_ACC_PROJECT_ID=...   # the tf-acc project
 export TF_ACC_TERRAFORM_PATH="$(command -v tofu)"   # or terraform
 make testacc     # TF_ACC=1, 120 minute timeout
 ```
 
-CI runs them against OpenTofu and Terraform when the `RAILWAY_ACC_TOKEN` repository secret exists. Pull requests from forks skip them.
+The values live in the 1Password Engineering item "terraform-provider-railway-iac-sdk acceptance". CI runs the tests against OpenTofu and Terraform when the `RAILWAY_ACC_TOKEN` repository secret and the `RAILWAY_ACC_PROJECT_ID` repository variable exist. Pull requests from forks skip them.
 
 ## Checks
 

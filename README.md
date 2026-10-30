@@ -43,7 +43,7 @@ Set exactly one credential:
 
 ```sh
 make check      # gofmt, vet, golangci-lint, race tests, examples, docs drift
-make testacc    # acceptance tests against Railway; needs RAILWAY_ACC_TOKEN
+make testacc    # acceptance tests against Railway; see CONTRIBUTING.md
 ```
 
 The unit tests drive the real `tofu` or `terraform` binary against an in-memory Railway environment (`internal/provider/fake_backboard_test.go`). See [CONTRIBUTING.md](CONTRIBUTING.md) for local overrides and the release process.

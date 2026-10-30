@@ -145,15 +145,16 @@ jobs:
       cancel-in-progress: false
     env:
       RAILWAY_ACC_TOKEN: ${{ secrets.RAILWAY_ACC_TOKEN }}
+      RAILWAY_ACC_PROJECT_ID: ${{ vars.RAILWAY_ACC_PROJECT_ID }}
     steps:
       - name: Check for acceptance credentials
         id: gate
         run: |
-          if [ -n "$RAILWAY_ACC_TOKEN" ]; then
+          if [ -n "$RAILWAY_ACC_TOKEN" ] && [ -n "$RAILWAY_ACC_PROJECT_ID" ]; then
             echo "enabled=true" >>"$GITHUB_OUTPUT"
           else
             echo "enabled=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::RAILWAY_ACC_TOKEN is not available (fork or unconfigured); skipping acceptance tests."
+            echo "::notice::RAILWAY_ACC_TOKEN or RAILWAY_ACC_PROJECT_ID is not available (fork or unconfigured); skipping acceptance tests."
           fi
       - name: Checkout
         if: steps.gate.outputs.enabled == 'true'
