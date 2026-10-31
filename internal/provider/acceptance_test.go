@@ -15,8 +15,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
-	"github.com/tambo-ai/terraform-provider-railway/internal/railwayapi"
+	"github.com/lachieh/terraform-provider-railway/internal/iac"
+	"github.com/lachieh/terraform-provider-railway/internal/railwayapi"
 )
 
 // accProjectPrefix guards the acceptance project: every test creates and

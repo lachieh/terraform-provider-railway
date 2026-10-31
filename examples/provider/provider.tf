@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     railway = {
-      source = "tambo-ai/railway"
+      source = "lachieh/railway"
     }
   }
 }

@@ -8,7 +8,7 @@ Each resource is one node of an environment's IaC graph. The provider builds the
 terraform {
   required_providers {
     railway = {
-      source = "tambo-ai/railway"
+      source = "lachieh/railway"
     }
   }
 }
@@ -54,7 +54,7 @@ Every release archive and checksum file carries a GitHub build provenance attest
 
 ```sh
 gh attestation verify terraform-provider-railway_0.2.0_linux_amd64.zip \
-  --repo tambo-ai/terraform-provider-railway
+  --repo lachieh/terraform-provider-railway
 ```
 
 ## License

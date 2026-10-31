@@ -9,7 +9,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/tambo-ai/terraform-provider-railway/internal/provider"
+	"github.com/lachieh/terraform-provider-railway/internal/provider"
 )
 
 //go:generate go tool tfplugindocs generate --provider-name railway --rendered-provider-name Railway --tf-version 1.17.0
@@ -22,7 +22,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New(version), providerserver.ServeOpts{
-		Address: "registry.terraform.io/tambo-ai/railway",
+		Address: "registry.terraform.io/lachieh/railway",
 		Debug:   debug,
 	})
 	if err != nil {

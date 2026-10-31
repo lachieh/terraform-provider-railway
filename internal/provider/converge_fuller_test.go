@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
+	"github.com/lachieh/terraform-provider-railway/internal/iac"
 )
 
 // planAgainstLive diffs model against a live config for service web.

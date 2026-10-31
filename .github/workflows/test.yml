@@ -185,7 +185,7 @@ jobs:
         env:
           TF_ACC: "1"
           TF_ACC_PROVIDER_HOST: ${{ matrix.provider_host }}
-          TF_ACC_PROVIDER_NAMESPACE: tambo-ai
+          TF_ACC_PROVIDER_NAMESPACE: lachieh
           MATRIX_CLI: ${{ matrix.cli }}
         run: |
           if [ "$MATRIX_CLI" = opentofu ]; then

@@ -5,7 +5,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
+	"github.com/lachieh/terraform-provider-railway/internal/iac"
 )
 
 // stagingEnvironmentConfig is the shape backboard returns for Charming's

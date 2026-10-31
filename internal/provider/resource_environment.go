@@ -11,7 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/tambo-ai/terraform-provider-railway/internal/railwayapi"
+	"github.com/lachieh/terraform-provider-railway/internal/railwayapi"
 )
 
 // environmentResource manages a Railway environment, the container the

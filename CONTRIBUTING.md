@@ -19,7 +19,7 @@ OpenTofu: add this to `~/.tofurc`, or to a file named by `TF_CLI_CONFIG_FILE`.
 ```hcl
 provider_installation {
   dev_overrides {
-    "tambo-ai/railway" = "/home/you/.local/share/terraform-provider-railway/dev"
+    "lachieh/railway" = "/home/you/.local/share/terraform-provider-railway/dev"
   }
   direct {}
 }
@@ -33,7 +33,7 @@ Configurations declare the provider as:
 terraform {
   required_providers {
     railway = {
-      source = "tambo-ai/railway"
+      source = "lachieh/railway"
     }
   }
 }
@@ -91,7 +91,7 @@ Build provenance:
 
 ```sh
 gh attestation verify terraform-provider-railway_1.2.3_linux_amd64.zip \
-  --repo tambo-ai/terraform-provider-railway
+  --repo lachieh/terraform-provider-railway
 ```
 
 GPG signature on the checksums, then the archive against the checksums:

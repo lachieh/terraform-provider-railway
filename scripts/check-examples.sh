@@ -4,7 +4,7 @@
 set -eu
 
 TOFU="${TOFU:-tofu}"
-source_address="tambo-ai/railway"
+source_address="lachieh/railway"
 provider_binary="terraform-provider-railway"
 
 cd "$(dirname "$0")/.."

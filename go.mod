@@ -1,4 +1,4 @@
-module github.com/tambo-ai/terraform-provider-railway
+module github.com/lachieh/terraform-provider-railway
 
 go 1.25.8
 

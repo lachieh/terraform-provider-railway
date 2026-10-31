@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
+	"github.com/lachieh/terraform-provider-railway/internal/iac"
 )
 
 // fakeBackboard is an in-memory Railway environment. It serves the
