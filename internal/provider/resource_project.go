@@ -14,7 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/railwayapi"
+	"github.com/tambo-ai/terraform-provider-railway/internal/railwayapi"
 )
 
 // projectResource manages a Railway project outside the IaC graph, which

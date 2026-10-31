@@ -1,4 +1,4 @@
-module github.com/tambo-ai/terraform-provider-railway-iac-sdk
+module github.com/tambo-ai/terraform-provider-railway
 
 go 1.25.8
 

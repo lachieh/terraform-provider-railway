@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/railwayapi"
+	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
+	"github.com/tambo-ai/terraform-provider-railway/internal/railwayapi"
 )
 
 const (

@@ -1,4 +1,4 @@
-/terraform-provider-railway-iac-sdk
+/terraform-provider-railway
 /bin/
 /dist/
 .terraform/

@@ -10,7 +10,7 @@ Build the provider into a local directory for `dev_overrides`:
 make install
 ```
 
-This writes `terraform-provider-railway-iac-sdk` to `~/.local/share/terraform-provider-railway-iac-sdk/dev`. Override the directory with `make install DEV_DIR=/some/path`.
+This writes `terraform-provider-railway` to `~/.local/share/terraform-provider-railway/dev`. Override the directory with `make install DEV_DIR=/some/path`.
 
 ### dev_overrides
 
@@ -19,7 +19,7 @@ OpenTofu: add this to `~/.tofurc`, or to a file named by `TF_CLI_CONFIG_FILE`.
 ```hcl
 provider_installation {
   dev_overrides {
-    "tambo-ai/railway-iac-sdk" = "/home/you/.local/share/terraform-provider-railway-iac-sdk/dev"
+    "tambo-ai/railway" = "/home/you/.local/share/terraform-provider-railway/dev"
   }
   direct {}
 }
@@ -33,7 +33,7 @@ Configurations declare the provider as:
 terraform {
   required_providers {
     railway = {
-      source = "tambo-ai/railway-iac-sdk"
+      source = "tambo-ai/railway"
     }
   }
 }
@@ -90,16 +90,16 @@ Download the archive for your platform, `SHA256SUMS`, `SHA256SUMS.sig` and the m
 Build provenance:
 
 ```sh
-gh attestation verify terraform-provider-railway-iac-sdk_1.2.3_linux_amd64.zip \
-  --repo tambo-ai/terraform-provider-railway-iac-sdk
+gh attestation verify terraform-provider-railway_1.2.3_linux_amd64.zip \
+  --repo tambo-ai/terraform-provider-railway
 ```
 
 GPG signature on the checksums, then the archive against the checksums:
 
 ```sh
-gpg --verify terraform-provider-railway-iac-sdk_1.2.3_SHA256SUMS.sig \
-  terraform-provider-railway-iac-sdk_1.2.3_SHA256SUMS
-sha256sum --check --ignore-missing terraform-provider-railway-iac-sdk_1.2.3_SHA256SUMS
+gpg --verify terraform-provider-railway_1.2.3_SHA256SUMS.sig \
+  terraform-provider-railway_1.2.3_SHA256SUMS
+sha256sum --check --ignore-missing terraform-provider-railway_1.2.3_SHA256SUMS
 ```
 
 Import the public key first with `gpg --import` if you have not verified a release before.

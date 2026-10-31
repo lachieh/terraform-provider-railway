@@ -1287,7 +1287,7 @@ func TestUnknownProjectKeyIsAnError(t *testing.T) {
 	assertEqual(t, len(diagnostics), 1)
 	assertEqual(t, diagnostics[0].Severity, "error")
 	assertEqual(t, diagnostics[0].Path, "project.notAField")
-	assertEqual(t, diagnostics[0].Message, `Unknown field "notAField" on project. This version of terraform-provider-railway-iac-sdk does not support it; upgrade the provider.`)
+	assertEqual(t, diagnostics[0].Message, `Unknown field "notAField" on project. This version of terraform-provider-railway does not support it; upgrade the provider.`)
 }
 
 func TestUnknownResourceKeyIsAnError(t *testing.T) {
@@ -1303,7 +1303,7 @@ func TestUnknownResourceKeyIsAnError(t *testing.T) {
 	assertEqual(t, len(diagnostics), 1)
 	assertEqual(t, diagnostics[0].Severity, "error")
 	assertEqual(t, diagnostics[0].Path, "resources.service.web.notAField")
-	assertEqual(t, diagnostics[0].Message, `Unknown field "notAField" on service.web. This version of terraform-provider-railway-iac-sdk does not support it; upgrade the provider.`)
+	assertEqual(t, diagnostics[0].Message, `Unknown field "notAField" on service.web. This version of terraform-provider-railway does not support it; upgrade the provider.`)
 }
 
 func TestAcceptsEveryKnownProjectAndResourceKey(t *testing.T) {

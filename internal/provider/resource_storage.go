@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	railway "github.com/railwayapp/railway-go-sdk"
 
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
+	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
 )
 
 type databaseModel struct {

@@ -1,4 +1,4 @@
-PROVIDER := terraform-provider-railway-iac-sdk
+PROVIDER := terraform-provider-railway
 DEV_DIR ?= $(HOME)/.local/share/$(PROVIDER)/dev
 GOLANGCI_LINT_VERSION := v2.15.0
 

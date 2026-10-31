@@ -17,8 +17,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/railwayapi"
+	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
+	"github.com/tambo-ai/terraform-provider-railway/internal/railwayapi"
 )
 
 const (
@@ -113,7 +113,7 @@ func (p *railwayProvider) Configure(ctx context.Context, req provider.ConfigureR
 		return
 	}
 
-	opts := []railwayapi.Option{railwayapi.WithUserAgent("terraform-provider-railway-iac-sdk/" + p.version)}
+	opts := []railwayapi.Option{railwayapi.WithUserAgent("terraform-provider-railway/" + p.version)}
 	endpoint := data.Endpoint.ValueString()
 	if endpoint == "" {
 		endpoint = os.Getenv(endpointEnvVar)

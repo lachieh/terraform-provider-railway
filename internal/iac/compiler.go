@@ -8,7 +8,7 @@ import (
 )
 
 // ProviderName is the tool named in unknown-field diagnostics.
-const ProviderName = "terraform-provider-railway-iac-sdk"
+const ProviderName = "terraform-provider-railway"
 
 // IACProjectFields are the top-level project keys ProjectDefinitionToGraph
 // reads, plus `variables`.

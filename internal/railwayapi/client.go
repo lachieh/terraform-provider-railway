@@ -20,7 +20,7 @@ import (
 const DefaultEndpoint = "https://backboard.railway.com/graphql/v2"
 
 const (
-	defaultUserAgent    = "terraform-provider-railway-iac-sdk"
+	defaultUserAgent    = "terraform-provider-railway"
 	defaultPollInterval = time.Second
 	maxAttempts         = 5
 	maxBackoff          = 30 * time.Second

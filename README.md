@@ -8,7 +8,7 @@ Each resource is one node of an environment's IaC graph. The provider builds the
 terraform {
   required_providers {
     railway = {
-      source = "tambo-ai/railway-iac-sdk"
+      source = "tambo-ai/railway"
     }
   }
 }
@@ -53,8 +53,8 @@ The unit tests drive the real `tofu` or `terraform` binary against an in-memory 
 Every release archive and checksum file carries a GitHub build provenance attestation, and the checksum file is GPG-signed for the Terraform Registry:
 
 ```sh
-gh attestation verify terraform-provider-railway-iac-sdk_0.1.0_linux_amd64.zip \
-  --repo tambo-ai/terraform-provider-railway-iac-sdk
+gh attestation verify terraform-provider-railway_0.2.0_linux_amd64.zip \
+  --repo tambo-ai/terraform-provider-railway
 ```
 
 ## License

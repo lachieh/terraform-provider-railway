@@ -1,6 +1,6 @@
 version: 2
 
-project_name: terraform-provider-railway-iac-sdk
+project_name: terraform-provider-railway
 
 builds:
   - env:

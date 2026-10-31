@@ -11,13 +11,13 @@ Manages Railway environments through Railway's Infrastructure as Code engine. Ea
 
 ## Example Usage
 
-Declare the provider under the local name `railway` with the source `tambo-ai/railway-iac-sdk`, so its resources are `railway_service`, `railway_database`, `railway_volume`, `railway_bucket` and so on.
+Declare the provider with the source `tambo-ai/railway`. Its resources are `railway_service`, `railway_database`, `railway_volume`, `railway_bucket` and so on.
 
 ```terraform
 terraform {
   required_providers {
     railway = {
-      source = "tambo-ai/railway-iac-sdk"
+      source = "tambo-ai/railway"
     }
   }
 }

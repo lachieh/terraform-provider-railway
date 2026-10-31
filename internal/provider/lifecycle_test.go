@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
-	"github.com/tambo-ai/terraform-provider-railway-iac-sdk/internal/iac"
+	"github.com/tambo-ai/terraform-provider-railway/internal/iac"
 )
 
 var testProviders = map[string]func() (tfprotov6.ProviderServer, error){
